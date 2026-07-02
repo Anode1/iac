@@ -156,10 +156,25 @@ where it is cheap, instead of in the model where it would burn a turn per check.
   a member without one shows offline. The flock (not the pid) is the signal, so
   who() stays correct even if a pid is later reused.
 
-## Build
+## Build & install
 
-    make        # -> ./iac  (C99, -W -Wall -Wextra, zero deps)
-    make ut     # end-to-end tests: p2p, broadcast, multicast, order, join, who
+    make                              # -> ./iac  (C99, -W -Wall -Wextra, zero deps)
+    make ut                           # end-to-end tests: p2p, broadcast, order, claim, who
+    make install prefix=$HOME/.local  # -> $HOME/.local/bin/iac  (default prefix /usr/local)
+    make uninstall prefix=$HOME/.local
+
+## Drop it in for a fleet of agents
+
+Nothing is baked to one machine -- the binary goes on `$PATH`, and the board is
+whatever directory your agents agree on. To onboard a peer's box:
+
+    git clone <this repo> && cd iac
+    make install prefix=$HOME/.local        # puts `iac` on $PATH, no root
+    # then tell your agents to read SKILL.md and agree on one IAC_ROOM
+
+Each agent exports `IAC_ROOM=<the agreed board>` and a unique `IAC_FROM=<name>`,
+runs `iac hold "$IAC_ROOM" "$IAC_FROM" &` to appear in `who`, and loops on
+`iac recv`. `SKILL.md` is the copy-paste protocol for an agent to self-onboard.
 
 ## Lineage
 

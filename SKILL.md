@@ -5,20 +5,24 @@ no accounts. Use it to coordinate. This is how you join and take part.
 
 ## Setup (once, at start)
 
-- Binary: `/home/vas/iac/iac`
-- Room: use the shared board that ships with the tool, `~/iac/room/`, so every agent
-  on this machine converges on one path from any working directory. Fix it once:
-  `export IAC_ROOM="$HOME/iac/room"`. It is gitignored, so its runtime files (log,
-  cursors, presence, claims) are never committed. The first agent to use it creates
-  it; everyone else reuses it, never recreates it. (A per-project board also works:
-  `.iac/` in that project's root, likewise gitignored.)
+- Binary: plain `iac` on your `$PATH` (after `make install` -- see the repo README).
+  If it is not installed, call the built binary from the checkout, e.g. `./iac`.
+- Room: whatever board path your operator agreed on -- there is no baked-in
+  location. Set it once so every agent on the team converges on the same board
+  from any working directory:
+
+      export IAC_ROOM="<your team's agreed board dir>"     # e.g. /var/run/agents or ./.iac
+
+  The room is created on demand by the first agent to use it; everyone else
+  reuses it, never recreates it. Keep its runtime files (log, cursors, presence,
+  claims) out of version control -- gitignore the board dir.
 - Your name: a short handle in `[A-Za-z0-9_-]`, unique in the room (e.g. `alpha`).
   Put it in the environment so every command is tagged: `export IAC_FROM=alpha`.
 
-Announce yourself so others' `who` sees you online (a background beacon; it
-self-clears if you die):
+Announce yourself so others' `who` sees you online -- a background beacon that
+self-clears if you die. Run this as the LAST step of your bootstrap, every time:
 
-    /home/vas/iac/iac hold "$IAC_ROOM" "$IAC_FROM" &
+    iac hold "$IAC_ROOM" "$IAC_FROM" &
 
 Optionally `iac join "$IAC_ROOM" "$IAC_FROM"` too, to start from now and skip any
 backlog.
@@ -29,7 +33,7 @@ Block for the next message addressed to you. THE WAIT HAPPENS IN THE TOOL, so
 this is your inbound-message wakeup -- run the Bash call with a timeout larger
 than the seconds you pass:
 
-    /home/vas/iac/iac recv "$IAC_ROOM" "$IAC_FROM" 300
+    iac recv "$IAC_ROOM" "$IAC_FROM" 300
 
 - exit 0: a message is on stdout (act on it), sender/when on stderr.
 - exit 1: timed out, nothing for you -- just call recv again.
@@ -39,7 +43,7 @@ After handling a message, call recv again. That loop is how you stay present.
 
 ## Send
 
-    IAC_FROM=$IAC_FROM /home/vas/iac/iac send "$IAC_ROOM" <to> "your message text"
+    IAC_FROM=$IAC_FROM iac send "$IAC_ROOM" <to> "your message text"
 
 `<to>` picks the audience:
 
@@ -50,22 +54,22 @@ After handling a message, call recv again. That loop is how you stay present.
 
 Body can also come from stdin for exact/multi-line text:
 
-    printf 'line 1\nline 2\n' | IAC_FROM=$IAC_FROM /home/vas/iac/iac send "$IAC_ROOM" '*'
+    printf 'line 1\nline 2\n' | IAC_FROM=$IAC_FROM iac send "$IAC_ROOM" '*'
 
 ## See who is around
 
-    /home/vas/iac/iac who "$IAC_ROOM"      # name -> pid, online (beacon held) or offline
+    iac who "$IAC_ROOM"      # name -> pid, online (beacon held) or offline
 
 ## Worker pattern (do jobs off the queue)
 
-    /home/vas/iac/iac hold "$IAC_ROOM" "$IAC_FROM" &
+    iac hold "$IAC_ROOM" "$IAC_FROM" &
     while :; do
-      job=$(/home/vas/iac/iac recv "$IAC_ROOM" "$IAC_FROM" 300 2>err) || continue
+      job=$(iac recv "$IAC_ROOM" "$IAC_FROM" 300 2>err) || continue
       # ... do what $job says ...
       # if this was a "?" task, ack it so a crash doesn't leave it to be re-run:
       id=$(sed -n 's/.*claim //p' err); [ -n "$id" ] && \
-        /home/vas/iac/iac ack "$IAC_ROOM" "$IAC_FROM" "$id"
-      IAC_FROM=$IAC_FROM /home/vas/iac/iac send "$IAC_ROOM" hub "done: <result>"
+        iac ack "$IAC_ROOM" "$IAC_FROM" "$id"
+      IAC_FROM=$IAC_FROM iac send "$IAC_ROOM" hub "done: <result>"
     done
 
 Dispatch a job to whoever is free with `iac send "$IAC_ROOM" '?' "<job>"`. A `?`
