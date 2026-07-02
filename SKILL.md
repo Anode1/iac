@@ -59,6 +59,18 @@ Body can also come from stdin for exact/multi-line text:
 
     printf 'line 1\nline 2\n' | IAC_FROM=$IAC_FROM iac send "$IAC_ROOM" '*'
 
+## Ask (a round-trip in one call)
+
+When you need an answer, not just to fire-and-forget, `ask` sends and then blocks
+for the reply in a single process -- no separate send + recv + cursor juggling:
+
+    IAC_FROM=$IAC_FROM iac ask "$IAC_ROOM" <to> "your question"
+
+It returns the next message addressed to you (in a 1:1 exchange, the reply) on
+stdout; timeout is `$IAC_ASK_TIMEOUT` (default 60s), exit 1 if it times out. It
+does not filter by sender: if another message for you arrives first you get that
+instead of it being dropped, so nothing is lost -- just call `ask`/`recv` again.
+
 ## See who is around
 
     iac who "$IAC_ROOM"      # name -> pid; online (parked on recv or holding) or "seen Ns ago"

@@ -22,6 +22,7 @@
  *   iac send  <room> <to>   [text...]   append one message (text from args/stdin)
  *   iac recv  <room> <me>   [seconds]   block for the next message addressed to me
  *   iac ack   <room> <me>   <id>        mark a claimed "?" task done (id from recv stderr)
+ *   iac ask   <room> <to>   [text...]   send, then block for the reply, in one process
  *   iac join  <room> <me>               start at the log's end + register presence
  *   iac leave <room> <me>               drop presence
  *   iac hold  <room> <me>               presence BEACON: flock-hold until killed (run in bg)
@@ -402,6 +403,25 @@ static int cmd_recv(const char *room, const char *me, int timeout_s)
     return rc;
 }
 
+/* ask: a round-trip in one process -- send the question to <to>, then block for
+ * the next message addressed to me (timeout $IAC_ASK_TIMEOUT, default 60s). In a
+ * 1:1 exchange that next message IS the reply. By design ask does NOT filter to
+ * <to>: if some other message for me lands first, ask returns THAT rather than
+ * dropping it -- filtering would mean consuming and losing it (one cursor, one
+ * total order), which would break iac's no-message-loss guarantee. recv already
+ * skips my own send, so my just-sent question never comes back to me. */
+static int cmd_ask(const char *room, const char *to, char **argv, int argi, int argc)
+{
+    const char *me = getenv("IAC_FROM");
+    const char *s = getenv("IAC_ASK_TIMEOUT");
+    int t = (s != NULL && atoi(s) > 0) ? atoi(s) : 60;
+    int rc;
+    if (me == NULL || !ok_name(me)) me = "anon";
+    rc = cmd_send(room, to, argv, argi, argc);   /* ask the question... */
+    if (rc != 0) return rc;
+    return cmd_recv(room, me, t);                 /* ...then wait for the answer */
+}
+
 /* ---- join / leave / who ------------------------------------------------ */
 static int cmd_join(const char *room, const char *me)
 {
@@ -506,7 +526,7 @@ int main(int argc, char **argv)
 {
     const char *cmd;
     if (argc < 3) {
-        fprintf(stderr, "usage: iac send|recv|ack|join|leave|hold|who|log <room> [name] ...\n");
+        fprintf(stderr, "usage: iac send|recv|ack|ask|join|leave|hold|who|log <room> [name] ...\n");
         return 2;
     }
     cmd = argv[1];
@@ -528,6 +548,11 @@ int main(int argc, char **argv)
         if (argc < 5 || !ok_name(argv[3])) return die("usage: iac ack <room> <me> <id>");
         return cmd_ack(argv[2], argv[3], atol(argv[4]));
     }
+    if (strcmp(cmd, "ask") == 0) {
+        if (argc < 4) return die("usage: iac ask <room> <to> [text...]");
+        if (!ok_spec(argv[3])) return die("bad recipient (name, a,b,c, or *)");
+        return cmd_ask(argv[2], argv[3], argv, 4, argc);
+    }
     if (strcmp(cmd, "join") == 0) {
         if (argc < 4 || !ok_name(argv[3])) return die("usage: iac join <room> <me>");
         return cmd_join(argv[2], argv[3]);
@@ -542,5 +567,5 @@ int main(int argc, char **argv)
     }
     if (strcmp(cmd, "who") == 0)  return cmd_who(argv[2]);
     if (strcmp(cmd, "log") == 0)  return cmd_log(argv[2]);
-    return die("unknown command (send|recv|ack|join|leave|hold|who|log)");
+    return die("unknown command (send|recv|ack|ask|join|leave|hold|who|log)");
 }

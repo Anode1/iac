@@ -224,6 +224,16 @@ int main(void)
     snprintf(path, sizeof path, "%s/rc", base);
     CHECK(strcmp(slurp(path, out, sizeof out), "0") == 0, "coexist: recv does not deadlock against its own beacon");
 
+    /* 18. ask: send a question and block for the reply in one process. bob echoes
+     *     it back; alice's `ask` returns bob's reply (alice's own send is skipped) */
+    snprintf(room, sizeof room, "%s/r_ask", base);
+    snprintf(cmd, sizeof cmd,
+             "( q=$(./iac recv %s bob 3 2>/dev/null); IAC_FROM=bob ./iac send %s alice -- \"reply:$q\" ) & "
+             "sleep 1; IAC_ASK_TIMEOUT=3 IAC_FROM=alice ./iac ask %s bob -- question >%s/o 2>/dev/null; wait",
+             room, room, room, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/o", base);
+    CHECK(strcmp(slurp(path, out, sizeof out), "reply:question") == 0, "ask: send-and-await-reply returns the peer's answer");
+
     snprintf(cmd, sizeof cmd, "rm -rf %s", base); if (system(cmd)) {}
     printf("%s\n", fails ? "FAILED" : "all passed");
     return fails ? 1 : 0;

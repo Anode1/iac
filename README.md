@@ -90,6 +90,10 @@ cursor rescan, so it works even after every worker has read past the frame.
     # ack it when the work is done so it is never re-run.
     iac ack /tmp/room me <id>
 
+    # a round-trip in one process: send a question, block for the reply.
+    # timeout is $IAC_ASK_TIMEOUT (default 60s). sender is $IAC_FROM.
+    IAC_FROM=alice iac ask /tmp/room bob   what is the build status?
+
     iac join  /tmp/room me     # start at the log's end (skip backlog) + register
     iac hold  /tmp/room me     # presence beacon: run in the background for the agent's life
     iac leave /tmp/room me     # drop registration
