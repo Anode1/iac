@@ -15,6 +15,52 @@ that blocks in C until a message addressed to it lands, so a parked receiver is
 one process asleep and returns once, on delivery -- one wakeup per message, not
 per poll.
 
+## Getting started
+
+### Supported systems
+
+`iac` is a POSIX program. It runs natively on **Linux** (the primary target),
+**macOS**, and the **BSDs**; prebuilt static-Linux and macOS binaries ride each
+[release](../../releases). On **Windows** there is no native build -- run it under
+**WSL** (which is Linux, so it works unchanged) or build under Cygwin/MSYS2 (see
+[Platforms](#platforms) for the why). Two requirements: every participant must
+share one filesystem (the same host, or a shared mount), and to build from source
+you need only a C99 compiler and `make` -- zero dependencies.
+
+### How to run
+
+Install a released binary, or build and install from source:
+
+    make install prefix=$HOME/.local     # puts `iac` on $PATH, no root
+
+Then, in two shells:
+
+    # shell A -- a receiver: block up to 5 minutes for a message to "bob"
+    iac recv /tmp/room bob 300
+
+    # shell B -- send it one (your name is $IAC_FROM)
+    IAC_FROM=alice iac send /tmp/room bob  hello bob
+
+Shell A prints `hello bob` and exits. The room `/tmp/room` is created on first
+use; each agent just picks a unique name and agrees on the room path. `iac help`
+is a one-screen reference; [Use](#use) documents every verb.
+
+### What to expect
+
+- **Delivery** -- `recv` blocks in C and returns *once*, on the first message
+  addressed to it: one wakeup per message, a single total order, broadcast in one
+  write. That returning process is the interrupt an LLM agent can actually use.
+- **Latency** -- roughly the 100 ms poll interval plus process start. Right for
+  coordination; wrong for a chatty inner loop (see [Limits](#limits-honest)).
+- **Exit codes** (branch on these in scripts) -- `recv`/`ask`: `0` delivered,
+  `1` timed out, `2` error. `send`: `0` on append.
+- **Durability & recovery** -- the log persists and is greppable (`iac log`); a
+  `?` work item whose worker dies is re-run after its TTL, so a crash doesn't lose
+  the job (the worker `iac ack`s on completion).
+- **What it is _not_** -- not authenticated or multi-tenant: any participant can
+  read every message and post under any name ([Trust model](#trust-model)). Not
+  cross-host without a shared mount, and not low-latency.
+
 ## Why not a message queue, an MCP server, or a bot?
 
 Most agent-coordination tooling reaches for something heavy: a cloud message
@@ -229,12 +275,13 @@ binaries. The Linux one is static, so it runs on any Linux without a glibc match
 
 ## Platforms
 
-`iac` is a POSIX program: it runs natively on **Linux, macOS, and the BSDs**. Its
-core primitive is `flock` (append ordering, presence, claims, `compact`), along
-with `writev`, `pread`/`pwrite`, and `dirent` -- all Unix, none native to
+The reason iac is Unix-native (and not native to Windows) is its primitives. The
+core one is `flock` -- it orders appends, backs presence, guards claims, and locks
+the log during `compact` -- alongside `writev`, `pread`/`pwrite`, and `dirent`.
+All are POSIX and present on Linux, macOS, and the BSDs; none is native to
 Windows. **On Windows, run it under WSL** (it is Linux, so it works unchanged);
-Cygwin/MSYS2 also build it via their POSIX layer. A native Windows port would
-mean swapping `flock` for `LockFileEx` and friends behind `#ifdef`s -- deliberately
+Cygwin/MSYS2 also build it via their POSIX layer. A native port would mean
+swapping `flock` for `LockFileEx` and friends behind `#ifdef`s -- deliberately
 not done, to keep the source spare.
 
 ## Drop it in for a fleet of agents
