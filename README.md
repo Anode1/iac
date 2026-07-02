@@ -177,6 +177,37 @@ where it is cheap, instead of in the model where it would burn a turn per check.
   `recv` calls reads as offline with a recent "seen Ns ago". The flock (not the
   pid) is the online signal, so who() stays correct even if a pid is later reused.
 
+## Trust model
+
+`iac` is **cooperative and same-host by design**. The security boundary is the
+filesystem: the room is a directory (created `0700`), so the operating system's
+permissions on that directory decide who may take part. Anyone who can read and
+write the room dir is a full participant -- there is no in-band authentication,
+and none is intended for the common case (one user's own agents on one machine).
+
+Concretely, within a room:
+
+- **`IAC_FROM` is an unverified label, not an identity.** The sender writes its
+  own `from` field and nothing checks it; any participant can post as any name.
+  Names exist to *coordinate* (route, address, show presence), not to
+  *authenticate*. Do not make a trust decision based solely on `from`.
+- The log is one shared file, so **every participant can read every message**,
+  regardless of its `to`. Addressing is a delivery filter, not secrecy.
+- Presence, cursors, and claims are likewise cooperative: a participant *could*
+  forge a claim, advance another's cursor, or delete a roster entry. The model
+  assumes mutually-trusting agents, and leans on file permissions for isolation
+  from everyone else.
+
+If untrusted participants ever had to share a room, the frame is the natural
+place to add authentication **without changing the transport**: carry a
+per-message HMAC (or a signature) over `from|to|epoch|body`, keyed by a secret
+each legitimate agent holds, and have `recv` verify it before delivery -- reject
+frames that do not verify. That promotes `from` from a label to a checkable
+claim while the room stays an append-only, greppable log. Pair it with the
+shared-mount or socket note above for the cross-host case. Until there is a real
+untrusted-participant threat, though, that machinery is deliberately absent:
+same-host file permissions are the whole trust boundary.
+
 ## Build & install
 
     make                              # -> ./iac  (C99, -W -Wall -Wextra, zero deps)
