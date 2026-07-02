@@ -168,6 +168,32 @@ int main(void)
     snprintf(path, sizeof path, "%s/r", base);
     CHECK(strcmp(slurp(path, out, sizeof out), "1") == 0, "ack: an acked task is not re-claimed past TTL");
 
+    /* 14. fork-storm: N workers race one "?" task -> exactly ONE claims it */
+    snprintf(room, sizeof room, "%s/r_race", base);
+    snprintf(cmd, sizeof cmd, "IAC_FROM=hub ./iac send %s '?' -- racejob", room); if (system(cmd)) {}
+    snprintf(cmd, sizeof cmd,
+             "for i in $(seq 20); do ./iac recv %s w$i 3 >%s/rc.$i 2>/dev/null & done; wait; "
+             "n=0; for i in $(seq 20); do [ -s %s/rc.$i ] && n=$((n+1)); done; printf %%d $n >%s/n",
+             room, base, base, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/n", base);
+    CHECK(strcmp(slurp(path, out, sizeof out), "1") == 0, "fork-storm: exactly one of 20 workers wins the ? task");
+
+    /* 15. fork-storm: N senders append at once -> all frames land intact and
+     *     distinct (no interleave/corruption under the writev+flock append) */
+    snprintf(room, sizeof room, "%s/r_storm", base);
+    snprintf(cmd, sizeof cmd, "./iac join %s rdr", room); if (system(cmd)) {}   /* start at end */
+    snprintf(cmd, sizeof cmd,
+             "for i in $(seq -w 1 16); do IAC_FROM=s$i ./iac send %s rdr -- storm$i & done; wait",
+             room); if (system(cmd)) {}
+    snprintf(cmd, sizeof cmd,
+             "rm -f %s/drain; for i in $(seq 16); do ./iac recv %s rdr 3 >>%s/drain 2>/dev/null && echo >>%s/drain; done",
+             base, room, base, base); if (system(cmd)) {}
+    snprintf(cmd, sizeof cmd,
+             "printf '%%s %%s' \"$(grep -c '^storm' %s/drain)\" \"$(grep '^storm' %s/drain | sort -u | wc -l)\" >%s/cnt",
+             base, base, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/cnt", base);
+    CHECK(strcmp(slurp(path, out, sizeof out), "16 16") == 0, "fork-storm: 16 concurrent senders append 16 intact, distinct frames");
+
     snprintf(cmd, sizeof cmd, "rm -rf %s", base); if (system(cmd)) {}
     printf("%s\n", fails ? "FAILED" : "all passed");
     return fails ? 1 : 0;
