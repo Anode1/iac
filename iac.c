@@ -25,7 +25,7 @@
  *   iac join  <room> <me>               start at the log's end + register presence
  *   iac leave <room> <me>               drop presence
  *   iac hold  <room> <me>               presence BEACON: flock-hold until killed (run in bg)
- *   iac who   <room>                    list members: online (beacon held) or offline
+ *   iac who   <room>                    list members: online (parked/held) or last-seen
  *   iac log   <room>                    print the whole room log
  *
  * Frame: <from>|<to>|<epoch>|<len>\n  then <len> body bytes  then \n
@@ -113,6 +113,54 @@ static void write_cursor(const char *path, long c)
     if (f == NULL) return;
     fprintf(f, "%ld\n", c);
     fclose(f);
+}
+
+/* ---- presence ---------------------------------------------------------- */
+/* A roster entry is "<join_epoch> <pid> <seen_epoch>": when the member first
+ * registered, the process behind the name, and when it was last active. Older
+ * two-field entries are read with seen defaulting to join_epoch. */
+static void roster_read(const char *rosp, long *join, long *pid, long *seen)
+{
+    char line[64];
+    long a = 0, b = 0, c = 0;
+    int n = 0;
+    FILE *f = fopen(rosp, "r");
+    *join = *pid = *seen = 0;
+    if (f == NULL) return;
+    if (fgets(line, sizeof line, f) != NULL) n = sscanf(line, "%ld %ld %ld", &a, &b, &c);
+    fclose(f);
+    if (n >= 2) { *join = a; *pid = b; *seen = (n >= 3) ? c : a; }
+}
+static void roster_put(const char *rosp, long join, long pid, long seen)
+{
+    FILE *f = fopen(rosp, "w");
+    if (f == NULL) return;
+    fprintf(f, "%ld %ld %ld\n", join, pid, seen);
+    fclose(f);
+}
+
+/* presence via recv: a parked recv IS presence. Register ME (preserving an
+ * existing join time / pid) with a fresh last-seen, and hold a SHARED flock on
+ * the roster entry for the recv's whole life. who() probes with LOCK_EX|LOCK_NB,
+ * so any held share reads as "online" -- a listening agent needs no separate
+ * beacon. The lock is shared so an agent's own `iac hold` beacon and its recv
+ * loop (the recommended pattern) coexist instead of deadlocking. Returns the
+ * held fd (close to release) or -1 if presence could not be taken. */
+static int presence_enter(const char *room, const char *me)
+{
+    char rosd[4096], rosp[4096];
+    long join, pid, seen, now = (long)time(NULL);
+    int fd;
+    mkdir(room, 0700);
+    if (snprintf(rosd, sizeof rosd, "%s/roster", room) >= (int)sizeof rosd) return -1;
+    mkdir(rosd, 0700);
+    if (p_ros(rosp, sizeof rosp, room, me)) return -1;
+    fd = open(rosp, O_RDWR | O_CREAT, 0600);
+    if (fd < 0) return -1;
+    if (flock(fd, LOCK_SH) != 0) { close(fd); return -1; }
+    roster_read(rosp, &join, &pid, &seen);
+    roster_put(rosp, join > 0 ? join : now, pid > 0 ? pid : (long)getpid(), now);
+    return fd;
 }
 
 /* ---- send -------------------------------------------------------------- */
@@ -285,7 +333,7 @@ static int recover_orphan(const char *room, const char *me)
     return 0;
 }
 
-static int cmd_recv(const char *room, const char *me, int timeout_s)
+static int recv_loop(const char *room, const char *me, int timeout_s)
 {
     char logp[4096], curp[4096], hdr[8192], from[256], to[4096];
     long cursor, epoch, frame_end;
@@ -343,13 +391,23 @@ static int cmd_recv(const char *room, const char *me, int timeout_s)
     }
 }
 
+/* recv wrapper: hold presence (a shared roster flock + fresh last-seen) for the
+ * whole blocking wait, so a parked receiver reads as "online" in who() with no
+ * separate beacon. The lock releases when recv returns (or the process dies). */
+static int cmd_recv(const char *room, const char *me, int timeout_s)
+{
+    int pfd = presence_enter(room, me);
+    int rc = recv_loop(room, me, timeout_s);
+    if (pfd >= 0) close(pfd);
+    return rc;
+}
+
 /* ---- join / leave / who ------------------------------------------------ */
 static int cmd_join(const char *room, const char *me)
 {
     char logp[4096], curp[4096], rosd[4096], rosp[4096];
     struct stat st;
     long end;
-    FILE *f;
     mkdir(room, 0700);
     if (snprintf(rosd, sizeof rosd, "%s/roster", room) >= (int)sizeof rosd) return die("path too long");
     mkdir(rosd, 0700);
@@ -358,8 +416,7 @@ static int cmd_join(const char *room, const char *me)
     if (p_cur(curp, sizeof curp, room, me)) return die("path too long");
     write_cursor(curp, end);
     if (p_ros(rosp, sizeof rosp, room, me)) return die("path too long");
-    f = fopen(rosp, "w");
-    if (f != NULL) { fprintf(f, "%ld %ld\n", (long)time(NULL), (long)getpid()); fclose(f); }
+    { long now = (long)time(NULL); roster_put(rosp, now, (long)getpid(), now); }
     return 0;
 }
 
@@ -371,34 +428,40 @@ static int cmd_leave(const char *room, const char *me)
     return 0;
 }
 
-/* hold: a presence BEACON. flock this agent's roster entry (name -> pid) for the
- * process's whole life and block. The lock releases automatically when the
- * process dies (even on SIGKILL), so who() reads liveness with nothing to reap
- * and no stale-pid guessing. An agent runs this in the background for its life;
- * from outside, roster/<name> IS the name-to-pid map. */
+/* hold: a presence BEACON. Take a SHARED flock on this agent's roster entry for
+ * the process's whole life and block. The lock releases automatically when the
+ * process dies (even on SIGKILL), so who() reads liveness with nothing to reap.
+ * The share is intentional: an agent's own recv loop also takes a shared lock on
+ * the same entry (presence_enter), so a beacon and a parked recv coexist rather
+ * than fight -- who() only cares that the share is held by *someone*. An agent
+ * runs this in the background for its life; roster/<name> IS the name-to-pid map. */
 static int cmd_hold(const char *room, const char *me)
 {
-    char rosd[4096], rosp[4096], line[64];
-    int fd, n;
+    char rosd[4096], rosp[4096];
+    long join, pid, seen, now = (long)time(NULL);
+    int fd;
     mkdir(room, 0700);                       /* room created on demand, reused after */
     if (snprintf(rosd, sizeof rosd, "%s/roster", room) >= (int)sizeof rosd) return die("path too long");
     mkdir(rosd, 0700);
     if (p_ros(rosp, sizeof rosp, room, me)) return die("path too long");
-    fd = open(rosp, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    fd = open(rosp, O_RDWR | O_CREAT, 0600);
     if (fd < 0) return die("cannot open presence file");
-    if (flock(fd, LOCK_EX | LOCK_NB) != 0) { close(fd); return die("presence already held for this name"); }
-    n = snprintf(line, sizeof line, "%ld %ld\n", (long)time(NULL), (long)getpid());
-    if (n <= 0 || write(fd, line, (size_t)n) != n) { close(fd); return die("write failed"); }
-    for (;;) pause();                        /* hold until signaled/killed */
+    if (flock(fd, LOCK_SH) != 0) { close(fd); return die("cannot hold presence"); }
+    roster_read(rosp, &join, &pid, &seen);   /* the beacon owns the name->pid map */
+    roster_put(rosp, join > 0 ? join : now, (long)getpid(), now);
+    for (;;) pause();                         /* hold until signaled/killed */
     return 0;                                /* not reached */
 }
 
 /* who: the name-to-pid roster, with liveness. A member is ONLINE if its entry is
- * flock held right now (a live beacon), else OFFLINE. The lock probe is the
- * self-clearing signal: a crashed agent shows offline with nothing to clean. */
+ * flock held right now (a live beacon OR a parked recv), else OFFLINE -- and for
+ * an offline member, "seen Ns ago" (its last recv) tells live-but-busy from gone,
+ * so even a send/recv-only agent that never held a beacon is visible and legible.
+ * The lock probe is the self-clearing signal: a crashed agent shows offline with
+ * nothing to reap. */
 static int cmd_who(const char *room)
 {
-    char rosd[4096], rosp[4096], line[64];
+    char rosd[4096], rosp[4096];
     struct dirent *e;
     DIR *d;
     long now = time(NULL);
@@ -406,21 +469,21 @@ static int cmd_who(const char *room)
     d = opendir(rosd);
     if (d == NULL) return 0;                 /* no members yet */
     while ((e = readdir(d)) != NULL) {
-        long epoch = 0, pid = 0;
+        long join = 0, pid = 0, seen = 0;
         int fd, held = 0;
         if (e->d_name[0] == '.') continue;
         if (p_ros(rosp, sizeof rosp, room, e->d_name)) continue;
+        roster_read(rosp, &join, &pid, &seen);
         fd = open(rosp, O_RDONLY);
         if (fd >= 0) {
-            ssize_t r = read(fd, line, sizeof line - 1);
-            line[r > 0 ? r : 0] = '\0';
-            sscanf(line, "%ld %ld", &epoch, &pid);
             if (flock(fd, LOCK_EX | LOCK_NB) != 0) held = 1;   /* held elsewhere = alive */
             else flock(fd, LOCK_UN);
             close(fd);
         }
-        printf("%-14s %-8s pid %-8ld since %lds ago\n",
-               e->d_name, held ? "online" : "offline", pid, now - epoch);
+        if (held)
+            printf("%-14s online   pid %-8ld active now\n", e->d_name, pid);
+        else
+            printf("%-14s offline  pid %-8ld seen %lds ago\n", e->d_name, pid, now - seen);
     }
     closedir(d);
     return 0;

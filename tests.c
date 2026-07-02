@@ -194,6 +194,36 @@ int main(void)
     snprintf(path, sizeof path, "%s/cnt", base);
     CHECK(strcmp(slurp(path, out, sizeof out), "16 16") == 0, "fork-storm: 16 concurrent senders append 16 intact, distinct frames");
 
+    /* 16. presence-in-recv: an agent parked on recv shows online with NO beacon,
+     *     then offline-but-recently-"seen" once recv returns (the heartbeat) */
+    snprintf(room, sizeof room, "%s/r_pir", base);
+    snprintf(cmd, sizeof cmd,
+             "( ./iac recv %s parker 5 >/dev/null 2>&1 ) & rp=$!; sleep 1; "
+             "./iac who %s >%s/w1 2>/dev/null; "
+             "IAC_FROM=hub ./iac send %s parker -- wake; wait $rp; "
+             "./iac who %s >%s/w2 2>/dev/null",
+             room, room, base, room, room, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/w1", base); slurp(path, out, sizeof out);
+    CHECK(strstr(out, "parker") && strstr(out, "online"),
+          "presence-in-recv: a parked recv shows online without a beacon");
+    snprintf(path, sizeof path, "%s/w2", base); slurp(path, out, sizeof out);
+    CHECK(strstr(out, "parker") && strstr(out, "offline") && strstr(out, "seen "),
+          "presence-in-recv: who reports last-seen once recv returns");
+
+    /* 17. an `iac hold` beacon and a recv loop on the SAME name must coexist
+     *     (shared lock), not deadlock -- recv still delivers with the beacon up */
+    snprintf(room, sizeof room, "%s/r_coex", base);
+    snprintf(cmd, sizeof cmd,
+             "./iac hold %s dual & hp=$!; sleep 1; "
+             "IAC_FROM=hub ./iac send %s dual -- ping; "
+             "timeout 4 ./iac recv %s dual 3 >%s/o 2>/dev/null; printf %%d $? >%s/rc; "
+             "kill $hp 2>/dev/null",
+             room, room, room, base, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/o", base); slurp(path, out, sizeof out);
+    CHECK(strcmp(out, "ping") == 0, "coexist: recv delivers while the agent's own hold beacon is up");
+    snprintf(path, sizeof path, "%s/rc", base);
+    CHECK(strcmp(slurp(path, out, sizeof out), "0") == 0, "coexist: recv does not deadlock against its own beacon");
+
     snprintf(cmd, sizeof cmd, "rm -rf %s", base); if (system(cmd)) {}
     printf("%s\n", fails ? "FAILED" : "all passed");
     return fails ? 1 : 0;

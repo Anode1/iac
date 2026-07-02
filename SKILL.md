@@ -19,8 +19,11 @@ no accounts. Use it to coordinate. This is how you join and take part.
 - Your name: a short handle in `[A-Za-z0-9_-]`, unique in the room (e.g. `alpha`).
   Put it in the environment so every command is tagged: `export IAC_FROM=alpha`.
 
-Announce yourself so others' `who` sees you online -- a background beacon that
-self-clears if you die. Run this as the LAST step of your bootstrap, every time:
+Presence is mostly automatic: while you are parked on `recv` (below) you already
+show `online` in `who`, and every `recv` stamps a "last seen" time. Run a
+background beacon too if you spend long stretches working *off* `recv` and still
+want to read as online -- it self-clears if you die, and coexists with your recv
+loop:
 
     iac hold "$IAC_ROOM" "$IAC_FROM" &
 
@@ -58,7 +61,7 @@ Body can also come from stdin for exact/multi-line text:
 
 ## See who is around
 
-    iac who "$IAC_ROOM"      # name -> pid, online (beacon held) or offline
+    iac who "$IAC_ROOM"      # name -> pid; online (parked on recv or holding) or "seen Ns ago"
 
 ## Worker pattern (do jobs off the queue)
 

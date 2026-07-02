@@ -93,7 +93,7 @@ cursor rescan, so it works even after every worker has read past the frame.
     iac join  /tmp/room me     # start at the log's end (skip backlog) + register
     iac hold  /tmp/room me     # presence beacon: run in the background for the agent's life
     iac leave /tmp/room me     # drop registration
-    iac who   /tmp/room        # who is who: name -> pid, online (beacon held) or offline
+    iac who   /tmp/room        # who is who: name -> pid; online (parked/held) or last-seen
     iac log   /tmp/room        # the whole ordered stream (debug)
 
 A new agent joins the chat by knowing the room's directory path and picking a
@@ -104,21 +104,31 @@ order even with many concurrent senders.
 
 ## Presence (who is who, and who is live)
 
-Each agent picks a name; the roster maps it to a pid, so an outside observer can
-tell which OS process is `john` and which is `nick`:
+Each agent picks a name; the roster maps it to a pid and a last-seen time, so an
+outside observer can tell which OS process is `john` and which is `nick`:
 
-    /tmp/room/roster/john   ->  "<epoch> <pid>"
-    /tmp/room/roster/nick   ->  "<epoch> <pid>"
+    /tmp/room/roster/john   ->  "<join_epoch> <pid> <seen_epoch>"
+    /tmp/room/roster/nick   ->  "<join_epoch> <pid> <seen_epoch>"
 
-Liveness is a held `flock`, not a heartbeat: an agent runs `iac hold` in the
-background for its lifetime, which flock-holds its roster entry. `iac who` probes
-the lock -- held means online. Because the OS drops the lock the instant the
-holder dies (even on SIGKILL), a crashed agent shows offline immediately, with no
-stale entry to reap and no pid-reuse guessing (the lock, not the pid, is the signal).
+Liveness is a held `flock`, not a periodic heartbeat: while an agent is listening
+its roster entry is flock-held, and `iac who` probes the lock -- held means
+online. **A parked `recv` counts as presence**: `recv` takes a *shared* lock on
+its roster entry for the whole blocking wait, so an agent looping on `recv` shows
+online with no separate process. `iac hold` is the same signal for an agent that
+wants to advertise presence while it is off doing work rather than parked on
+`recv`; because the lock is shared, a `hold` beacon and a `recv` loop on one name
+coexist instead of fighting. The OS drops the lock the instant the holder dies
+(even on SIGKILL), so a crash shows offline immediately -- nothing to reap, no
+pid-reuse guessing (the lock, not the pid, is the signal).
+
+For an agent that is neither parked nor holding a beacon -- alive but busy
+between `recv` calls -- `who` falls back to the **last-seen** stamp `recv` writes
+each call, so you can still tell recently-active from long-gone:
 
     iac who /tmp/room
-    john   online   pid 40021  since 3s ago
-    nick   offline  pid 40022  since 1s ago     # nick's process died; auto-cleared
+    john   online   pid 40021  active now         # parked on recv (or holding a beacon)
+    nick   offline  pid 40022  seen 3s ago         # alive but between recv calls
+    mary   offline  pid 40023  seen 3600s ago      # long gone
 
 ## Frame (on disk, plain text)
 
@@ -152,9 +162,10 @@ where it is cheap, instead of in the model where it would burn a turn per check.
   wrong for a chatty inner-loop protocol.
 - Each member reads the whole stream to filter -- fine at coordination scale;
   for a very high-traffic room, shard into more rooms.
-- Presence liveness needs each agent to run one background `iac hold` beacon;
-  a member without one shows offline. The flock (not the pid) is the signal, so
-  who() stays correct even if a pid is later reused.
+- Presence shows "online" while an agent is parked on `recv` (a shared roster
+  flock) or running an `iac hold` beacon; an agent that is alive but between
+  `recv` calls reads as offline with a recent "seen Ns ago". The flock (not the
+  pid) is the online signal, so who() stays correct even if a pid is later reused.
 
 ## Build & install
 
