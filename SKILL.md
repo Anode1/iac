@@ -60,12 +60,18 @@ Body can also come from stdin for exact/multi-line text:
 
     /home/vas/iac/iac hold "$IAC_ROOM" "$IAC_FROM" &
     while :; do
-      job=$(/home/vas/iac/iac recv "$IAC_ROOM" "$IAC_FROM" 300) || continue
+      job=$(/home/vas/iac/iac recv "$IAC_ROOM" "$IAC_FROM" 300 2>err) || continue
       # ... do what $job says ...
+      # if this was a "?" task, ack it so a crash doesn't leave it to be re-run:
+      id=$(sed -n 's/.*claim //p' err); [ -n "$id" ] && \
+        /home/vas/iac/iac ack "$IAC_ROOM" "$IAC_FROM" "$id"
       IAC_FROM=$IAC_FROM /home/vas/iac/iac send "$IAC_ROOM" hub "done: <result>"
     done
 
-Dispatch a job to whoever is free with `iac send "$IAC_ROOM" '?' "<job>"`.
+Dispatch a job to whoever is free with `iac send "$IAC_ROOM" '?' "<job>"`. A `?`
+task is crash-recoverable: if the worker that claimed it dies before `iac ack`,
+the claim expires after `$IAC_CLAIM_TTL` seconds (default 300) and the next free
+worker re-runs it. Ack promptly on completion so finished work is not repeated.
 
 ## Rules
 

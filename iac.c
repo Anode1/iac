@@ -10,6 +10,10 @@
  *   to = "a,b,c"    a subset (multicast)
  *   to = "?"        any ONE free member claims it (a work queue: competing consumers)
  *
+ * A "?" claim is crash-recoverable: the winner acks on completion (iac ack); a
+ * claim left unacked past $IAC_CLAIM_TTL seconds (default 300) is presumed dead
+ * and becomes re-claimable, so a job whose worker crashes still runs to completion.
+ *
  * The wait happens here in C, so a parked recv is one process asleep and returns
  * once, on delivery -- one wakeup per message, not per poll. No daemon, no
  * sockets, no deps: any number of agents on a shared filesystem get a symmetric,
@@ -17,6 +21,7 @@
  *
  *   iac send  <room> <to>   [text...]   append one message (text from args/stdin)
  *   iac recv  <room> <me>   [seconds]   block for the next message addressed to me
+ *   iac ack   <room> <me>   <id>        mark a claimed "?" task done (id from recv stderr)
  *   iac join  <room> <me>               start at the log's end + register presence
  *   iac leave <room> <me>               drop presence
  *   iac hold  <room> <me>               presence BEACON: flock-hold until killed (run in bg)
@@ -160,10 +165,27 @@ static int cmd_send(const char *room, const char *to, char **argv, int argi, int
 }
 
 /* ---- recv -------------------------------------------------------------- */
-/* Atomically claim the task at log offset ID (a to="?" message): the first
- * recv-er to create the claim file wins (O_CREAT|O_EXCL); the rest skip it. So a
- * "?" task runs exactly once, whoever is free -- competing consumers, no coordinator. */
-static int claim_won(const char *room, long id)
+/* Seconds an unacked claim stays owned before it is presumed dead and re-claimable. */
+static long claim_ttl(void)
+{
+    const char *s = getenv("IAC_CLAIM_TTL");
+    long t;
+    if (s == NULL || (t = atol(s)) <= 0) return 300;
+    return t;
+}
+/* Write a claim-state line to FD (already positioned at 0). Returns 0 on success. */
+static int claim_write(int fd, const char *state, long epoch, const char *who)
+{
+    char line[300];
+    int n = snprintf(line, sizeof line, "%s %ld %s\n", state, epoch, who);
+    return (n > 0 && (size_t)n < sizeof line && write(fd, line, (size_t)n) == n) ? 0 : -1;
+}
+/* Claim the FRESH "?" task at log offset ID for ME: win by being the one to
+ * create its claim file (O_CREAT|O_EXCL). EEXIST means a peer already has it --
+ * lose. This is the hot path: the first free worker to scan the frame wins it,
+ * competing consumers, no coordinator. Recovery of a stuck claim is separate
+ * (recover_orphan), so a loser here simply moves on and never revisits it. */
+static int claim_fresh(const char *room, long id, const char *me)
 {
     char cld[4096], clp[4096];
     int fd;
@@ -172,8 +194,95 @@ static int claim_won(const char *room, long id)
     if (snprintf(clp, sizeof clp, "%s/claims/%ld", room, id) >= (int)sizeof clp) return 0;
     fd = open(clp, O_WRONLY | O_CREAT | O_EXCL, 0600);
     if (fd < 0) return 0;                     /* EEXIST: already claimed by a peer */
+    claim_write(fd, "claimed", (long)time(NULL), me);
     close(fd);
     return 1;
+}
+
+/* Steal the EXISTING claim at offset ID for ME iff its worker is presumed dead:
+ * under flock, a "done" marker means it already completed (lose); an active claim
+ * within TTL means a live worker owns it (lose); a claim older than the TTL means
+ * the worker died unacked, so rewrite the epoch to now and win. The flock
+ * serializes the expiry race, so exactly one stealer wins. */
+static int claim_steal(const char *room, long id, const char *me)
+{
+    char clp[4096], st[300];
+    long ttl = claim_ttl(), now = (long)time(NULL), epoch = 0;
+    int fd, won = 0;
+    if (snprintf(clp, sizeof clp, "%s/claims/%ld", room, id) >= (int)sizeof clp) return 0;
+    fd = open(clp, O_RDWR);
+    if (fd < 0) return 0;
+    flock(fd, LOCK_EX);
+    {
+        ssize_t r = read(fd, st, sizeof st - 1);
+        st[r > 0 ? r : 0] = '\0';
+        if (sscanf(st, "claimed %ld", &epoch) == 1 && now - epoch > ttl) {
+            if (lseek(fd, 0, SEEK_SET) == 0 && ftruncate(fd, 0) == 0 &&
+                claim_write(fd, "claimed", now, me) == 0) won = 1;   /* steal */
+        }
+    }
+    flock(fd, LOCK_UN);
+    close(fd);
+    return won;
+}
+
+/* ack: mark the "?" task at offset ID done, so it is never re-claimed after its
+ * TTL. The id is the one recv printed on stderr when it handed ME the task. */
+static int cmd_ack(const char *room, const char *me, long id)
+{
+    char clp[4096];
+    int fd, rc;
+    if (snprintf(clp, sizeof clp, "%s/claims/%ld", room, id) >= (int)sizeof clp) return die("path too long");
+    fd = open(clp, O_WRONLY | O_CREAT, 0600);
+    if (fd < 0) return die("cannot open claim");
+    flock(fd, LOCK_EX);
+    rc = (lseek(fd, 0, SEEK_SET) == 0 && ftruncate(fd, 0) == 0 &&
+          claim_write(fd, "done", (long)time(NULL), me) == 0) ? 0 : 1;
+    flock(fd, LOCK_UN);
+    close(fd);
+    return rc ? die("write failed") : 0;
+}
+
+/* Re-deliver one orphaned "?" task: an entry in claims/ still "claimed" but whose
+ * worker has been silent past the TTL. The claim's filename IS the task's log
+ * offset, so recovery is independent of any cursor -- steal it, then re-read and
+ * deliver the frame at that offset. Returns 1 (and prints the task) iff one was
+ * recovered for ME. This is what turns "?" from best-effort into run-to-completion. */
+static int recover_orphan(const char *room, const char *me)
+{
+    char cld[4096], logp[4096], hdr[8192], from[256], to[4096];
+    DIR *d;
+    struct dirent *e;
+    if (snprintf(cld, sizeof cld, "%s/claims", room) >= (int)sizeof cld) return 0;
+    if (p_log(logp, sizeof logp, room)) return 0;
+    d = opendir(cld);
+    if (d == NULL) return 0;                       /* no claims dir yet */
+    while ((e = readdir(d)) != NULL) {
+        long off, epoch;
+        size_t len;
+        char *end;
+        FILE *f;
+        if (e->d_name[0] == '.') continue;
+        off = strtol(e->d_name, &end, 10);
+        if (*end != '\0' || off < 0) continue;     /* not an offset-named claim */
+        if (!claim_steal(room, off, me)) continue; /* done, active, or lost the race */
+        f = fopen(logp, "r");                      /* stolen: re-deliver the frame */
+        if (f == NULL) continue;
+        if (fseek(f, off, SEEK_SET) == 0 &&
+            fgets(hdr, sizeof hdr, f) != NULL && strchr(hdr, '\n') != NULL &&
+            sscanf(hdr, "%255[^|]|%4095[^|]|%ld|%zu", from, to, &epoch, &len) == 4 &&
+            len <= sizeof g_body && fread(g_body, 1, len, f) == len) {
+            fclose(f);
+            closedir(d);
+            fprintf(stderr, "iac: from %s to ? at %ld claim %ld\n", from, epoch, off);
+            fwrite(g_body, 1, len, stdout);
+            fflush(stdout);
+            return 1;
+        }
+        fclose(f);
+    }
+    closedir(d);
+    return 0;
 }
 
 static int cmd_recv(const char *room, const char *me, int timeout_s)
@@ -206,12 +315,15 @@ static int cmd_recv(const char *room, const char *me, int timeout_s)
                 {
                     int is_claim = (strcmp(to, "?") == 0);
                     int mine = (strcmp(from, me) != 0) && (is_claim || to_me(to, me));
-                    if (mine && is_claim && !claim_won(room, cursor)) mine = 0;   /* lost the race */
+                    if (mine && is_claim && !claim_fresh(room, cursor, me)) mine = 0;   /* a peer claimed it */
                     if (mine) {
                         if (len > sizeof g_body) { fclose(f); return die("message too large"); }
                         if (fread(g_body, 1, len, f) != len) { fclose(f); return die("short read"); }
                         fclose(f);
-                        fprintf(stderr, "iac: from %s to %s at %ld\n", from, to, epoch);
+                        if (is_claim)   /* id lets the worker `iac ack` on completion */
+                            fprintf(stderr, "iac: from %s to ? at %ld claim %ld\n", from, epoch, cursor);
+                        else
+                            fprintf(stderr, "iac: from %s to %s at %ld\n", from, to, epoch);
                         fwrite(g_body, 1, len, stdout);
                         fflush(stdout);
                         write_cursor(curp, frame_end);
@@ -224,6 +336,7 @@ static int cmd_recv(const char *room, const char *me, int timeout_s)
             fclose(f);
             write_cursor(curp, cursor);                 /* persist scan progress */
         }
+        if (recover_orphan(room, me)) return 0;         /* re-run a dead worker's task */
         if (waited_ms >= limit_ms) return 1;            /* nothing for me in time */
         nanosleep(&slp, NULL);
         waited_ms += IAC_POLL_MS;
@@ -330,7 +443,7 @@ int main(int argc, char **argv)
 {
     const char *cmd;
     if (argc < 3) {
-        fprintf(stderr, "usage: iac send|recv|join|leave|hold|who|log <room> [name] ...\n");
+        fprintf(stderr, "usage: iac send|recv|ack|join|leave|hold|who|log <room> [name] ...\n");
         return 2;
     }
     cmd = argv[1];
@@ -348,6 +461,10 @@ int main(int argc, char **argv)
         if (t < 0) t = 0;
         return cmd_recv(argv[2], argv[3], t);
     }
+    if (strcmp(cmd, "ack") == 0) {
+        if (argc < 5 || !ok_name(argv[3])) return die("usage: iac ack <room> <me> <id>");
+        return cmd_ack(argv[2], argv[3], atol(argv[4]));
+    }
     if (strcmp(cmd, "join") == 0) {
         if (argc < 4 || !ok_name(argv[3])) return die("usage: iac join <room> <me>");
         return cmd_join(argv[2], argv[3]);
@@ -362,5 +479,5 @@ int main(int argc, char **argv)
     }
     if (strcmp(cmd, "who") == 0)  return cmd_who(argv[2]);
     if (strcmp(cmd, "log") == 0)  return cmd_log(argv[2]);
-    return die("unknown command (send|recv|join|leave|hold|who|log)");
+    return die("unknown command (send|recv|ack|join|leave|hold|who|log)");
 }

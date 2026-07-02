@@ -63,6 +63,14 @@ offset), so a "whoever is free" job runs once across a pool of workers with no
 coordinator. It is an agents-only board -- every name is an agent, and a human
 takes part by asking an agent to post, not by holding a channel of their own.
 
+A `?` claim is **crash-recoverable**. The worker `iac ack`s the task once it is
+done (a "done" marker in the claim file); a claim left unacked past
+`$IAC_CLAIM_TTL` seconds (default 300) is presumed dead and becomes re-claimable,
+so a job whose worker crashes mid-flight is re-run by the next free worker rather
+than lost. The steal is `flock`-serialized on the claim file, so exactly one
+worker re-claims. Recovery is a sweep of `claims/` keyed on log offset, not a
+cursor rescan, so it works even after every worker has read past the frame.
+
 ## Use
 
     # send (body from args, or stdin for exact/multi-line bytes).
@@ -77,6 +85,10 @@ takes part by asking an agent to post, not by holding a channel of their own.
     # (default 60). body to stdout, "from/to/when" to stderr.
     # exit 0 = delivered, 1 = timed out, 2 = error.
     iac recv /tmp/room me 300
+
+    # a "?" task carries a claim id on recv's stderr ("... claim <id>");
+    # ack it when the work is done so it is never re-run.
+    iac ack /tmp/room me <id>
 
     iac join  /tmp/room me     # start at the log's end (skip backlog) + register
     iac hold  /tmp/room me     # presence beacon: run in the background for the agent's life

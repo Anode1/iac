@@ -133,6 +133,41 @@ int main(void)
     CHECK(strstr(out, "offline") != NULL,
           "presence: it self-clears to offline when the beacon process dies");
 
+    /* 12. crash-recovery: an unacked "?" claim is protected within its TTL, then
+     *     becomes re-claimable once the presumed-dead worker is past it */
+    snprintf(room, sizeof room, "%s/r_rec", base);
+    snprintf(cmd, sizeof cmd, "IAC_FROM=hub ./iac send %s '?' -- recjob", room); if (system(cmd)) {}
+    snprintf(cmd, sizeof cmd, "./iac recv %s w1 3 >%s/o1 2>/dev/null", room, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/o1", base);
+    CHECK(strcmp(slurp(path, out, sizeof out), "recjob") == 0, "recovery: first worker claims the ? task");
+    /* within TTL (default 300s), a second worker must NOT steal the live claim */
+    snprintf(cmd, sizeof cmd, "./iac recv %s w2 1 >/dev/null 2>&1; printf %%d $? >%s/r", room, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/r", base);
+    CHECK(strcmp(slurp(path, out, sizeof out), "1") == 0, "recovery: an active claim is not stolen within TTL");
+    /* w1 never acked (simulated crash); past a short TTL, w2 re-claims and reruns it */
+    snprintf(cmd, sizeof cmd, "sleep 2; IAC_CLAIM_TTL=1 ./iac recv %s w2 3 >%s/o2 2>/dev/null", room, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/o2", base);
+    CHECK(strcmp(slurp(path, out, sizeof out), "recjob") == 0, "recovery: an unacked claim past TTL is re-claimed");
+
+    /* 13. ack: a completed "?" task is never re-run, even past its TTL */
+    snprintf(room, sizeof room, "%s/r_ack", base);
+    snprintf(cmd, sizeof cmd, "IAC_FROM=hub ./iac send %s '?' -- ackjob", room); if (system(cmd)) {}
+    /* w1 claims, reads the claim id off recv's stderr, and acks it */
+    snprintf(cmd, sizeof cmd,
+             "./iac recv %s w1 3 >%s/o 2>%s/e; "
+             "id=$(sed -n 's/.*claim //p' %s/e | tr -d ' \\n'); "
+             "grep -q 'claim ' %s/e && printf yes >%s/g; "
+             "./iac ack %s w1 \"$id\"",
+             room, base, base, base, base, base, room); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/o", base);
+    CHECK(strcmp(slurp(path, out, sizeof out), "ackjob") == 0, "ack: worker receives the ? task");
+    snprintf(path, sizeof path, "%s/g", base);
+    CHECK(strcmp(slurp(path, out, sizeof out), "yes") == 0, "ack: recv prints the claim id on stderr");
+    /* past the TTL, a done-marked task stays done: nobody re-runs it */
+    snprintf(cmd, sizeof cmd, "sleep 2; IAC_CLAIM_TTL=1 ./iac recv %s w3 1 >/dev/null 2>&1; printf %%d $? >%s/r", room, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/r", base);
+    CHECK(strcmp(slurp(path, out, sizeof out), "1") == 0, "ack: an acked task is not re-claimed past TTL");
+
     snprintf(cmd, sizeof cmd, "rm -rf %s", base); if (system(cmd)) {}
     printf("%s\n", fails ? "FAILED" : "all passed");
     return fails ? 1 : 0;
