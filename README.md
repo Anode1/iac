@@ -86,6 +86,10 @@ cursor rescan, so it works even after every worker has read past the frame.
     # exit 0 = delivered, 1 = timed out, 2 = error.
     iac recv /tmp/room me 300
 
+    # tail -f for my messages: stream each one as it lands (observational, does
+    # not claim "?" work); returns after N seconds of silence.
+    iac recv /tmp/room me 3600 --follow
+
     # a "?" task carries a claim id on recv's stderr ("... claim <id>");
     # ack it when the work is done so it is never re-run.
     iac ack /tmp/room me <id>

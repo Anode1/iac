@@ -403,6 +403,58 @@ static int cmd_recv(const char *room, const char *me, int timeout_s)
     return rc;
 }
 
+/* follow: tail -f for my messages -- stream every frame addressed to me as it
+ * lands (body to stdout with a trailing newline separator, from/to/when to
+ * stderr), instead of returning after one. Observational, so it does NOT claim
+ * "?" work. It advances my cursor like a normal recv (it IS a recv variant), and
+ * holds presence while parked. Returns after IDLE_S seconds with nothing new. */
+static int cmd_follow(const char *room, const char *me, int idle_s)
+{
+    char logp[4096], curp[4096], hdr[8192], from[256], to[4096];
+    long cursor, epoch, frame_end;
+    size_t len;
+    int waited_ms = 0, limit_ms = idle_s * 1000, pfd;
+    struct timespec slp = { 0, IAC_POLL_MS * 1000000L };
+    if (p_log(logp, sizeof logp, room) || p_cur(curp, sizeof curp, room, me)) return die("path too long");
+    pfd = presence_enter(room, me);
+    cursor = read_cursor(curp);
+    for (;;) {
+        struct stat st;
+        int got = 0;
+        if (stat(logp, &st) == 0 && st.st_size > cursor) {
+            FILE *f = fopen(logp, "r");
+            if (f != NULL && fseek(f, cursor, SEEK_SET) == 0) {
+                for (;;) {
+                    if (fgets(hdr, sizeof hdr, f) == NULL || strchr(hdr, '\n') == NULL) break;
+                    if (sscanf(hdr, "%255[^|]|%4095[^|]|%ld|%zu", from, to, &epoch, &len) != 4) break;
+                    frame_end = cursor + (long)strlen(hdr) + (long)len + 1;
+                    if (st.st_size < frame_end) break;             /* body not all there yet */
+                    if (strcmp(from, me) != 0 && strcmp(to, "?") != 0 && to_me(to, me) &&
+                        len <= sizeof g_body && fread(g_body, 1, len, f) == len) {
+                        fprintf(stderr, "iac: from %s to %s at %ld\n", from, to, epoch);
+                        fwrite(g_body, 1, len, stdout);
+                        fputc('\n', stdout);
+                        fflush(stdout);
+                        got = 1;
+                    }
+                    cursor = frame_end;
+                    if (fseek(f, cursor, SEEK_SET) != 0) break;
+                }
+            }
+            if (f != NULL) fclose(f);
+            write_cursor(curp, cursor);
+        }
+        if (got) waited_ms = 0;                                    /* activity resets the idle clock */
+        else {
+            if (waited_ms >= limit_ms) break;
+            nanosleep(&slp, NULL);
+            waited_ms += IAC_POLL_MS;
+        }
+    }
+    if (pfd >= 0) close(pfd);
+    return 0;
+}
+
 /* ask: a round-trip in one process -- send the question to <to>, then block for
  * the next message addressed to me (timeout $IAC_ASK_TIMEOUT, default 60s). In a
  * 1:1 exchange that next message IS the reply. By design ask does NOT filter to
@@ -584,12 +636,18 @@ int main(int argc, char **argv)
         return cmd_send(argv[2], argv[3], argv, 4, argc);
     }
     if (strcmp(cmd, "recv") == 0) {
-        int t;
-        if (argc < 4) return die("usage: iac recv <room> <me> [seconds]");
-        if (!ok_name(argv[3])) return die("bad name");
-        t = (argc >= 5) ? atoi(argv[4]) : 60;
+        const char *room = NULL, *me = NULL, *secs = NULL;
+        int follow = 0, t, i;
+        for (i = 2; i < argc; i++) {           /* positionals, with --follow anywhere */
+            if (strcmp(argv[i], "--follow") == 0 || strcmp(argv[i], "-f") == 0) follow = 1;
+            else if (room == NULL) room = argv[i];
+            else if (me == NULL) me = argv[i];
+            else if (secs == NULL) secs = argv[i];
+        }
+        if (me == NULL || !ok_name(me)) return die("usage: iac recv <room> <me> [seconds] [--follow]");
+        t = (secs != NULL) ? atoi(secs) : 60;
         if (t < 0) t = 0;
-        return cmd_recv(argv[2], argv[3], t);
+        return follow ? cmd_follow(room, me, t) : cmd_recv(room, me, t);
     }
     if (strcmp(cmd, "ack") == 0) {
         if (argc < 5 || !ok_name(argv[3])) return die("usage: iac ack <room> <me> <id>");

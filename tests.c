@@ -243,6 +243,19 @@ int main(void)
     CHECK(strstr(out, "three") && strstr(out, "four") && !strstr(out, "one") && !strstr(out, "two"),
           "log -n K: prints only the last K frames");
 
+    /* 20. recv --follow: stream successive messages for me, skip "?" work, then
+     *     return after an idle gap */
+    snprintf(room, sizeof room, "%s/r_follow", base);
+    snprintf(cmd, sizeof cmd,
+             "( sleep 1; IAC_FROM=x ./iac send %s watch -- alpha; "
+             "IAC_FROM=y ./iac send %s '?' -- work; "
+             "IAC_FROM=z ./iac send %s watch -- beta ) & "
+             "./iac recv %s watch 3 --follow >%s/o 2>/dev/null; wait",
+             room, room, room, room, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/o", base); slurp(path, out, sizeof out);
+    CHECK(strstr(out, "alpha") && strstr(out, "beta") && !strstr(out, "work"),
+          "recv --follow: streams successive messages and skips ? work");
+
     snprintf(cmd, sizeof cmd, "rm -rf %s", base); if (system(cmd)) {}
     printf("%s\n", fails ? "FAILED" : "all passed");
     return fails ? 1 : 0;
