@@ -1,3 +1,6 @@
 iac
 tests
 *.o
+# a live board (runtime log / cursors / roster / claims) -- never commit it
+room/
+.iac/
