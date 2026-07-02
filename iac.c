@@ -118,9 +118,7 @@ static void write_cursor(const char *path, long c)
 }
 
 /* ---- presence ---------------------------------------------------------- */
-/* A roster entry is "<join_epoch> <pid> <seen_epoch>": when the member first
- * registered, the process behind the name, and when it was last active. Older
- * two-field entries are read with seen defaulting to join_epoch. */
+/* Parse a roster entry "<join> <pid> <seen>" (old 2-field: seen defaults to join). */
 static void roster_read(const char *rosp, long *join, long *pid, long *seen)
 {
     char line[64];
@@ -141,13 +139,7 @@ static void roster_put(const char *rosp, long join, long pid, long seen)
     fclose(f);
 }
 
-/* presence via recv: a parked recv IS presence. Register ME (preserving an
- * existing join time / pid) with a fresh last-seen, and hold a SHARED flock on
- * the roster entry for the recv's whole life. who() probes with LOCK_EX|LOCK_NB,
- * so any held share reads as "online" -- a listening agent needs no separate
- * beacon. The lock is shared so an agent's own `iac hold` beacon and its recv
- * loop (the recommended pattern) coexist instead of deadlocking. Returns the
- * held fd (close to release) or -1 if presence could not be taken. */
+/* Stamp last-seen and hold a SHARED roster flock for the recv's life (parked recv == online). Returns the held fd or -1. */
 static int presence_enter(const char *room, const char *me)
 {
     char rosd[4096], rosp[4096];
@@ -230,11 +222,7 @@ static int claim_write(int fd, const char *state, long epoch, const char *who)
     int n = snprintf(line, sizeof line, "%s %ld %s\n", state, epoch, who);
     return (n > 0 && (size_t)n < sizeof line && write(fd, line, (size_t)n) == n) ? 0 : -1;
 }
-/* Claim the FRESH "?" task at log offset ID for ME: win by being the one to
- * create its claim file (O_CREAT|O_EXCL). EEXIST means a peer already has it --
- * lose. This is the hot path: the first free worker to scan the frame wins it,
- * competing consumers, no coordinator. Recovery of a stuck claim is separate
- * (recover_orphan), so a loser here simply moves on and never revisits it. */
+/* Win the fresh "?" at offset ID by creating its claim file (O_CREAT|O_EXCL); EEXIST = a peer has it, lose. */
 static int claim_fresh(const char *room, long id, const char *me)
 {
     char cld[4096], clp[4096];
@@ -249,11 +237,7 @@ static int claim_fresh(const char *room, long id, const char *me)
     return 1;
 }
 
-/* Steal the EXISTING claim at offset ID for ME iff its worker is presumed dead:
- * under flock, a "done" marker means it already completed (lose); an active claim
- * within TTL means a live worker owns it (lose); a claim older than the TTL means
- * the worker died unacked, so rewrite the epoch to now and win. The flock
- * serializes the expiry race, so exactly one stealer wins. */
+/* Steal claim ID iff unacked past TTL (rewrite epoch under flock, so one stealer wins); done or active = lose. */
 static int claim_steal(const char *room, long id, const char *me)
 {
     char clp[4096], st[300];
@@ -276,8 +260,7 @@ static int claim_steal(const char *room, long id, const char *me)
     return won;
 }
 
-/* ack: mark the "?" task at offset ID done, so it is never re-claimed after its
- * TTL. The id is the one recv printed on stderr when it handed ME the task. */
+/* Mark the "?" at offset ID done (id is what recv printed on stderr) so it is never re-claimed. */
 static int cmd_ack(const char *room, const char *me, long id)
 {
     char clp[4096];
@@ -293,11 +276,7 @@ static int cmd_ack(const char *room, const char *me, long id)
     return rc ? die("write failed") : 0;
 }
 
-/* Re-deliver one orphaned "?" task: an entry in claims/ still "claimed" but whose
- * worker has been silent past the TTL. The claim's filename IS the task's log
- * offset, so recovery is independent of any cursor -- steal it, then re-read and
- * deliver the frame at that offset. Returns 1 (and prints the task) iff one was
- * recovered for ME. This is what turns "?" from best-effort into run-to-completion. */
+/* Steal one expired claim from claims/ (keyed by offset, so cursor-independent) and re-deliver its frame; 1 if recovered. */
 static int recover_orphan(const char *room, const char *me)
 {
     char cld[4096], logp[4096], hdr[8192], from[256], to[4096];
@@ -393,9 +372,7 @@ static int recv_loop(const char *room, const char *me, int timeout_s)
     }
 }
 
-/* recv wrapper: hold presence (a shared roster flock + fresh last-seen) for the
- * whole blocking wait, so a parked receiver reads as "online" in who() with no
- * separate beacon. The lock releases when recv returns (or the process dies). */
+/* recv, wrapped to hold presence for the whole blocking wait (parked == online in who()). */
 static int cmd_recv(const char *room, const char *me, int timeout_s)
 {
     int pfd = presence_enter(room, me);
@@ -404,11 +381,7 @@ static int cmd_recv(const char *room, const char *me, int timeout_s)
     return rc;
 }
 
-/* follow: tail -f for my messages -- stream every frame addressed to me as it
- * lands (body to stdout with a trailing newline separator, from/to/when to
- * stderr), instead of returning after one. Observational, so it does NOT claim
- * "?" work. It advances my cursor like a normal recv (it IS a recv variant), and
- * holds presence while parked. Returns after IDLE_S seconds with nothing new. */
+/* tail -f for my messages: stream each frame for me as it lands (never claims "?"); return after IDLE_S of silence. */
 static int cmd_follow(const char *room, const char *me, int idle_s)
 {
     char logp[4096], curp[4096], hdr[8192], from[256], to[4096];
@@ -456,13 +429,7 @@ static int cmd_follow(const char *room, const char *me, int idle_s)
     return 0;
 }
 
-/* ask: a round-trip in one process -- send the question to <to>, then block for
- * the next message addressed to me (timeout $IAC_ASK_TIMEOUT, default 60s). In a
- * 1:1 exchange that next message IS the reply. By design ask does NOT filter to
- * <to>: if some other message for me lands first, ask returns THAT rather than
- * dropping it -- filtering would mean consuming and losing it (one cursor, one
- * total order), which would break iac's no-message-loss guarantee. recv already
- * skips my own send, so my just-sent question never comes back to me. */
+/* One-process round-trip: send to <to>, then recv the next message for me (timeout $IAC_ASK_TIMEOUT); unfiltered, so nothing is dropped. */
 static int cmd_ask(const char *room, const char *to, char **argv, int argi, int argc)
 {
     const char *me = getenv("IAC_FROM");
@@ -501,13 +468,7 @@ static int cmd_leave(const char *room, const char *me)
     return 0;
 }
 
-/* hold: a presence BEACON. Take a SHARED flock on this agent's roster entry for
- * the process's whole life and block. The lock releases automatically when the
- * process dies (even on SIGKILL), so who() reads liveness with nothing to reap.
- * The share is intentional: an agent's own recv loop also takes a shared lock on
- * the same entry (presence_enter), so a beacon and a parked recv coexist rather
- * than fight -- who() only cares that the share is held by *someone*. An agent
- * runs this in the background for its life; roster/<name> IS the name-to-pid map. */
+/* Presence beacon: hold a SHARED roster flock until killed (shared so it coexists with the agent's own recv); the OS drops it on death. */
 static int cmd_hold(const char *room, const char *me)
 {
     char rosd[4096], rosp[4096];
@@ -526,12 +487,7 @@ static int cmd_hold(const char *room, const char *me)
     return 0;                                /* not reached */
 }
 
-/* who: the name-to-pid roster, with liveness. A member is ONLINE if its entry is
- * flock held right now (a live beacon OR a parked recv), else OFFLINE -- and for
- * an offline member, "seen Ns ago" (its last recv) tells live-but-busy from gone,
- * so even a send/recv-only agent that never held a beacon is visible and legible.
- * The lock probe is the self-clearing signal: a crashed agent shows offline with
- * nothing to reap. */
+/* List members: online if the roster flock is held (beacon or parked recv), else offline with "seen Ns ago". */
 static int cmd_who(const char *room)
 {
     char rosd[4096], rosp[4096];
@@ -562,9 +518,7 @@ static int cmd_who(const char *room)
     return 0;
 }
 
-/* Step over one frame in F from the current offset, skipping its body. Returns
- * the frame's byte length, 0 at clean EOF, or -1 on a partial/corrupt tail.
- * Leaves F positioned at the start of the next frame. */
+/* Skip one frame in F, leaving it at the next; returns the frame's byte length, 0 at EOF, -1 on a partial tail. */
 static long frame_skip(FILE *f)
 {
     char hdr[8192], from[256], to[4096];
@@ -578,9 +532,7 @@ static long frame_skip(FILE *f)
     return flen;
 }
 
-/* Print the room log. With TAIL > 0, print only the last TAIL frames (orientation
- * for a freshly spawned agent) -- two forward passes: count, then skip all but
- * the last TAIL and dump the rest verbatim. */
+/* Print the room log; with TAIL > 0, only the last TAIL frames (count, then skip the front, then dump). */
 static int cmd_log(const char *room, long tail)
 {
     char logp[4096], buf[8192];
@@ -601,16 +553,7 @@ static int cmd_log(const char *room, long tail)
     return 0;
 }
 
-/* compact: reclaim a room whose log and claims/ have grown unbounded. Drop every
- * frame that lies before `keep` = the minimum over all <name>.cur cursors (the
- * point every registered reader has already consumed), then shift cursors and
- * re-key claims by that amount so the offset-addressed world stays consistent.
- *
- * The log is shifted left IN PLACE under its append lock -- no inode swap, so a
- * sender blocked on the lock still appends to the live file (nothing lost) and
- * the log is never left partial. It is a maintenance op: run it in a lull. A recv
- * that races the shift may see one frame wrong and exit 2 -- the caller just
- * recv's again, now off the correct (shifted) cursor. */
+/* Reclaim: drop frames before keep = min over all cursors, then shift cursors and re-key claims (log shifted in place under the append lock, so no append is lost). Maintenance op; run in a lull. */
 static int cmd_compact(const char *room)
 {
     char logp[4096], cld[4096], p1[4096], p2[4096];
@@ -674,9 +617,7 @@ static int cmd_compact(const char *room)
         closedir(d);
     }
 
-    /* 4. re-key claims: drop those whose frame was dropped (offset < keep), shift
-     *    survivors down by keep. Collect first (no readdir-vs-rename races), then
-     *    rename in two phases via a .t suffix so numeric names never collide. */
+    /* 4. re-key claims: drop those < keep, shift survivors down by keep (two-phase .t rename, no collisions) */
     if (snprintf(cld, sizeof cld, "%s/claims", room) < (int)sizeof cld) {
         d = opendir(cld);
         if (d != NULL) {

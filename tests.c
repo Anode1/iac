@@ -133,8 +133,7 @@ int main(void)
     CHECK(strstr(out, "offline") != NULL,
           "presence: it self-clears to offline when the beacon process dies");
 
-    /* 12. crash-recovery: an unacked "?" claim is protected within its TTL, then
-     *     becomes re-claimable once the presumed-dead worker is past it */
+    /* 12. crash-recovery: an unacked "?" claim is protected within TTL, re-claimable past it */
     snprintf(room, sizeof room, "%s/r_rec", base);
     snprintf(cmd, sizeof cmd, "IAC_FROM=hub ./iac send %s '?' -- recjob", room); if (system(cmd)) {}
     snprintf(cmd, sizeof cmd, "./iac recv %s w1 3 >%s/o1 2>/dev/null", room, base); if (system(cmd)) {}
@@ -178,8 +177,7 @@ int main(void)
     snprintf(path, sizeof path, "%s/n", base);
     CHECK(strcmp(slurp(path, out, sizeof out), "1") == 0, "fork-storm: exactly one of 20 workers wins the ? task");
 
-    /* 15. fork-storm: N senders append at once -> all frames land intact and
-     *     distinct (no interleave/corruption under the writev+flock append) */
+    /* 15. fork-storm: N senders append at once -> all frames land intact and distinct */
     snprintf(room, sizeof room, "%s/r_storm", base);
     snprintf(cmd, sizeof cmd, "./iac join %s rdr", room); if (system(cmd)) {}   /* start at end */
     snprintf(cmd, sizeof cmd,
@@ -194,8 +192,7 @@ int main(void)
     snprintf(path, sizeof path, "%s/cnt", base);
     CHECK(strcmp(slurp(path, out, sizeof out), "16 16") == 0, "fork-storm: 16 concurrent senders append 16 intact, distinct frames");
 
-    /* 16. presence-in-recv: an agent parked on recv shows online with NO beacon,
-     *     then offline-but-recently-"seen" once recv returns (the heartbeat) */
+    /* 16. presence-in-recv: parked recv shows online (no beacon), then "seen Ns ago" after */
     snprintf(room, sizeof room, "%s/r_pir", base);
     snprintf(cmd, sizeof cmd,
              "( ./iac recv %s parker 5 >/dev/null 2>&1 ) & rp=$!; sleep 1; "
@@ -210,8 +207,7 @@ int main(void)
     CHECK(strstr(out, "parker") && strstr(out, "offline") && strstr(out, "seen "),
           "presence-in-recv: who reports last-seen once recv returns");
 
-    /* 17. an `iac hold` beacon and a recv loop on the SAME name must coexist
-     *     (shared lock), not deadlock -- recv still delivers with the beacon up */
+    /* 17. a hold beacon and a recv on the SAME name coexist (shared lock), not deadlock */
     snprintf(room, sizeof room, "%s/r_coex", base);
     snprintf(cmd, sizeof cmd,
              "./iac hold %s dual & hp=$!; sleep 1; "
@@ -224,8 +220,7 @@ int main(void)
     snprintf(path, sizeof path, "%s/rc", base);
     CHECK(strcmp(slurp(path, out, sizeof out), "0") == 0, "coexist: recv does not deadlock against its own beacon");
 
-    /* 18. ask: send a question and block for the reply in one process. bob echoes
-     *     it back; alice's `ask` returns bob's reply (alice's own send is skipped) */
+    /* 18. ask: send a question and block for the reply in one process (bob echoes it back) */
     snprintf(room, sizeof room, "%s/r_ask", base);
     snprintf(cmd, sizeof cmd,
              "( q=$(./iac recv %s bob 3 2>/dev/null); IAC_FROM=bob ./iac send %s alice -- \"reply:$q\" ) & "
@@ -243,8 +238,7 @@ int main(void)
     CHECK(strstr(out, "three") && strstr(out, "four") && !strstr(out, "one") && !strstr(out, "two"),
           "log -n K: prints only the last K frames");
 
-    /* 20. recv --follow: stream successive messages for me, skip "?" work, then
-     *     return after an idle gap */
+    /* 20. recv --follow: stream successive messages for me, skip "?" work, return after idle */
     snprintf(room, sizeof room, "%s/r_follow", base);
     snprintf(cmd, sizeof cmd,
              "( sleep 1; IAC_FROM=x ./iac send %s watch -- alpha; "
@@ -256,8 +250,7 @@ int main(void)
     CHECK(strstr(out, "alpha") && strstr(out, "beta") && !strstr(out, "work"),
           "recv --follow: streams successive messages and skips ? work");
 
-    /* 21. compact: drop frames every reader has passed, shift cursors so reading
-     *     continues seamlessly at the right place */
+    /* 21. compact: drop frames every reader has passed, shift cursors so recv resumes right */
     snprintf(room, sizeof room, "%s/r_compact", base);
     snprintf(cmd, sizeof cmd,
              "for m in one two three four; do IAC_FROM=x ./iac send %s a -- $m; done; "
