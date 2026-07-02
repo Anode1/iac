@@ -1,0 +1,43 @@
+name: ci
+
+# Build and run the full test suite on every push to main and every PR, on the
+# two platforms iac actually targets: Linux and macOS (it is a POSIX program --
+# flock/writev/dirent/etc. -- so there is no native Windows lane; Windows users
+# run it under WSL).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    name: build & test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build
+        run: make
+
+      - name: test
+        run: make ut
+
+      - name: sanitizers (ASan + UBSan)
+        if: runner.os == 'Linux'
+        run: make ut-asan
+
+      - name: name the binary
+        run: |
+          os=$(uname -s); case "$os" in Linux) os=linux ;; Darwin) os=macos ;; esac
+          cp iac "iac-$os-$(uname -m)"
+
+      - name: upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iac-${{ matrix.os }}
+          path: iac-*
+          if-no-files-found: error

@@ -1,5 +1,7 @@
 # iac -- inter-agent communication
 
+[![ci](https://github.com/Anode1/iac/actions/workflows/ci.yml/badge.svg)](https://github.com/Anode1/iac/actions/workflows/ci.yml)
+
 A minimal, efficient dispatcher for agents (or any processes) to message each
 other on a shared filesystem: broadcast, point-to-point, and subset, in named
 rooms. No daemon, no sockets, no third-party service, no accounts -- one small
@@ -220,6 +222,20 @@ same-host file permissions are the whole trust boundary.
     make ut                           # end-to-end tests: p2p, broadcast, order, claim, who
     make install prefix=$HOME/.local  # -> $HOME/.local/bin/iac  (default prefix /usr/local)
     make uninstall prefix=$HOME/.local
+
+Prebuilt Linux and macOS binaries ride each tagged release (see the Releases
+page) -- CI builds and tests both on every push; a `v*` tag also attaches the
+binaries. The Linux one is static, so it runs on any Linux without a glibc match.
+
+## Platforms
+
+`iac` is a POSIX program: it runs natively on **Linux, macOS, and the BSDs**. Its
+core primitive is `flock` (append ordering, presence, claims, `compact`), along
+with `writev`, `pread`/`pwrite`, and `dirent` -- all Unix, none native to
+Windows. **On Windows, run it under WSL** (it is Linux, so it works unchanged);
+Cygwin/MSYS2 also build it via their POSIX layer. A native Windows port would
+mean swapping `flock` for `LockFileEx` and friends behind `#ifdef`s -- deliberately
+not done, to keep the source spare.
 
 ## Drop it in for a fleet of agents
 

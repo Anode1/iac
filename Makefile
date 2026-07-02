@@ -5,7 +5,7 @@ BIN    = iac
 prefix = /usr/local
 
 $(BIN): iac.c
-	$(CC) $(CFLAGS) -o $@ iac.c
+	$(CC) $(CFLAGS) -o $@ iac.c $(LDFLAGS)
 
 # End-to-end tests drive the built binary, so build it first.
 ut: $(BIN) tests
