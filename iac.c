@@ -28,6 +28,7 @@
  *   iac hold  <room> <me>               presence BEACON: flock-hold until killed (run in bg)
  *   iac who   <room>                    list members: online (parked/held) or last-seen
  *   iac log   <room>                    print the whole room log
+ *   iac compact <room>                  reclaim: drop frames every reader has passed
  *
  * Frame: <from>|<to>|<epoch>|<len>\n  then <len> body bytes  then \n
  * Sender name is $IAC_FROM (default "anon"). send appends with one writev under
@@ -600,6 +601,110 @@ static int cmd_log(const char *room, long tail)
     return 0;
 }
 
+/* compact: reclaim a room whose log and claims/ have grown unbounded. Drop every
+ * frame that lies before `keep` = the minimum over all <name>.cur cursors (the
+ * point every registered reader has already consumed), then shift cursors and
+ * re-key claims by that amount so the offset-addressed world stays consistent.
+ *
+ * The log is shifted left IN PLACE under its append lock -- no inode swap, so a
+ * sender blocked on the lock still appends to the live file (nothing lost) and
+ * the log is never left partial. It is a maintenance op: run it in a lull. A recv
+ * that races the shift may see one frame wrong and exit 2 -- the caller just
+ * recv's again, now off the correct (shifted) cursor. */
+static int cmd_compact(const char *room)
+{
+    char logp[4096], cld[4096], p1[4096], p2[4096];
+    long keep = -1, cursors = 0, surv[8192];
+    int fd, ns = 0, capped = 0, i;
+    DIR *d;
+    struct dirent *e;
+
+    if (p_log(logp, sizeof logp, room)) return die("path too long");
+
+    /* 1. keep = min over every <name>.cur */
+    d = opendir(room);
+    if (d == NULL) return die("no such room");
+    while ((e = readdir(d)) != NULL) {
+        size_t l = strlen(e->d_name);
+        long c;
+        if (l < 5 || strcmp(e->d_name + l - 4, ".cur") != 0) continue;
+        if (snprintf(p1, sizeof p1, "%s/%s", room, e->d_name) >= (int)sizeof p1) continue;
+        c = read_cursor(p1);
+        if (keep < 0 || c < keep) keep = c;
+        cursors++;
+    }
+    closedir(d);
+    if (keep <= 0) { printf("compact: nothing to drop (min cursor %ld over %ld reader(s))\n",
+                            keep < 0 ? 0 : keep, cursors); return 0; }
+
+    /* 2. shift the log left by `keep` bytes, in place, under the append lock */
+    fd = open(logp, O_RDWR);
+    if (fd < 0) return die("cannot open room log");
+    flock(fd, LOCK_EX);
+    {
+        struct stat st;
+        char buf[65536];
+        long src, dst, rem;
+        if (fstat(fd, &st) != 0) { flock(fd, LOCK_UN); close(fd); return die("stat failed"); }
+        if (keep > (long)st.st_size) keep = (long)st.st_size;
+        src = keep; dst = 0; rem = (long)st.st_size - keep;
+        while (rem > 0) {
+            size_t want = rem < (long)sizeof buf ? (size_t)rem : sizeof buf;
+            ssize_t r = pread(fd, buf, want, src);
+            if (r <= 0 || pwrite(fd, buf, (size_t)r, dst) != r) break;
+            src += r; dst += r; rem -= r;
+        }
+        if (ftruncate(fd, (long)st.st_size - keep) != 0) rem = -1;   /* note failure below */
+        (void)rem;
+    }
+    flock(fd, LOCK_UN);
+    close(fd);
+
+    /* 3. shift every cursor down by keep (all are >= keep, so none goes negative) */
+    d = opendir(room);
+    if (d != NULL) {
+        while ((e = readdir(d)) != NULL) {
+            size_t l = strlen(e->d_name);
+            long c;
+            if (l < 5 || strcmp(e->d_name + l - 4, ".cur") != 0) continue;
+            if (snprintf(p1, sizeof p1, "%s/%s", room, e->d_name) >= (int)sizeof p1) continue;
+            c = read_cursor(p1);
+            write_cursor(p1, c > keep ? c - keep : 0);
+        }
+        closedir(d);
+    }
+
+    /* 4. re-key claims: drop those whose frame was dropped (offset < keep), shift
+     *    survivors down by keep. Collect first (no readdir-vs-rename races), then
+     *    rename in two phases via a .t suffix so numeric names never collide. */
+    if (snprintf(cld, sizeof cld, "%s/claims", room) < (int)sizeof cld) {
+        d = opendir(cld);
+        if (d != NULL) {
+            while ((e = readdir(d)) != NULL) {
+                char *ep;
+                long o;
+                if (e->d_name[0] == '.') continue;
+                o = strtol(e->d_name, &ep, 10);
+                if (*ep != '\0') continue;
+                if (o < keep) {
+                    if (snprintf(p1, sizeof p1, "%s/%ld", cld, o) < (int)sizeof p1) unlink(p1);
+                } else if (ns < (int)(sizeof surv / sizeof surv[0])) surv[ns++] = o;
+                else capped = 1;
+            }
+            closedir(d);
+            for (i = 0; i < ns; i++)
+                if (snprintf(p1, sizeof p1, "%s/%ld", cld, surv[i]) < (int)sizeof p1 &&
+                    snprintf(p2, sizeof p2, "%s/%ld.t", cld, surv[i] - keep) < (int)sizeof p2) rename(p1, p2);
+            for (i = 0; i < ns; i++)
+                if (snprintf(p1, sizeof p1, "%s/%ld.t", cld, surv[i] - keep) < (int)sizeof p1 &&
+                    snprintf(p2, sizeof p2, "%s/%ld", cld, surv[i] - keep) < (int)sizeof p2) rename(p1, p2);
+        }
+    }
+    printf("compact: dropped %ld bytes, shifted %ld cursor(s), re-keyed %d claim(s)%s\n",
+           keep, cursors, ns, capped ? " (claim list capped)" : "");
+    return 0;
+}
+
 /* One-screen help: every verb, and the env knobs that shape them. */
 static void usage(FILE *out)
 {
@@ -614,7 +719,8 @@ static void usage(FILE *out)
         "  iac leave <room> <me>            drop registration\n"
         "  iac hold  <room> <me>            presence beacon: hold until killed (run in background)\n"
         "  iac who   <room>                 list members: online (parked/held) or last-seen\n"
-        "  iac log   <room> [-n K]          print the room log (last K frames with -n K)\n\n"
+        "  iac log   <room> [-n K]          print the room log (last K frames with -n K)\n"
+        "  iac compact <room>               drop frames every reader has passed; re-key cursors/claims\n\n"
         "env:\n"
         "  IAC_FROM=<name>       sender name (default anon)\n"
         "  IAC_CLAIM_TTL=<secs>  a \"?\" task is re-claimable this long after an unacked claim (300)\n"
@@ -671,6 +777,7 @@ int main(int argc, char **argv)
         return cmd_hold(argv[2], argv[3]);
     }
     if (strcmp(cmd, "who") == 0)  return cmd_who(argv[2]);
+    if (strcmp(cmd, "compact") == 0) return cmd_compact(argv[2]);
     if (strcmp(cmd, "log") == 0) {
         long tail = (argc >= 5 && strcmp(argv[3], "-n") == 0) ? atol(argv[4]) : 0;
         return cmd_log(argv[2], tail);

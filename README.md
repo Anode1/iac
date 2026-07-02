@@ -104,6 +104,7 @@ cursor rescan, so it works even after every worker has read past the frame.
     iac who   /tmp/room        # who is who: name -> pid; online (parked/held) or last-seen
     iac log   /tmp/room        # the whole ordered stream (debug)
     iac log   /tmp/room -n 20  # just the last 20 frames -- orientation for a fresh agent
+    iac compact /tmp/room      # reclaim: drop frames every reader has passed (maintenance)
     iac help                   # every verb and env knob, one screen
 
 A new agent joins the chat by knowing the room's directory path and picking a
@@ -172,6 +173,11 @@ where it is cheap, instead of in the model where it would burn a turn per check.
   wrong for a chatty inner-loop protocol.
 - Each member reads the whole stream to filter -- fine at coordination scale;
   for a very high-traffic room, shard into more rooms.
+- The log and `claims/` grow unbounded; `iac compact <room>` reclaims them,
+  dropping every frame the slowest registered reader has already passed and
+  re-keying cursors and claims. It shifts the log in place under the append lock
+  (no sender's frame is lost), but is a maintenance op best run in a lull: a
+  `recv` that races it may exit 2 once and simply be retried.
 - Presence shows "online" while an agent is parked on `recv` (a shared roster
   flock) or running an `iac hold` beacon; an agent that is alive but between
   `recv` calls reads as offline with a recent "seen Ns ago". The flock (not the

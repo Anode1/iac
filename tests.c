@@ -256,6 +256,21 @@ int main(void)
     CHECK(strstr(out, "alpha") && strstr(out, "beta") && !strstr(out, "work"),
           "recv --follow: streams successive messages and skips ? work");
 
+    /* 21. compact: drop frames every reader has passed, shift cursors so reading
+     *     continues seamlessly at the right place */
+    snprintf(room, sizeof room, "%s/r_compact", base);
+    snprintf(cmd, sizeof cmd,
+             "for m in one two three four; do IAC_FROM=x ./iac send %s a -- $m; done; "
+             "./iac recv %s a 2 >/dev/null 2>&1; ./iac recv %s a 2 >/dev/null 2>&1; "  /* a reads one,two */
+             "./iac compact %s >/dev/null 2>&1; "
+             "./iac log %s >%s/lg 2>/dev/null; ./iac recv %s a 2 >%s/nx 2>/dev/null",
+             room, room, room, room, room, base, room, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/lg", base); slurp(path, out, sizeof out);
+    CHECK(strstr(out, "three") && strstr(out, "four") && !strstr(out, "one") && !strstr(out, "two"),
+          "compact: drops frames every reader has already passed");
+    snprintf(path, sizeof path, "%s/nx", base); slurp(path, out, sizeof out);
+    CHECK(strcmp(out, "three") == 0, "compact: cursors shift so recv resumes at the right frame");
+
     snprintf(cmd, sizeof cmd, "rm -rf %s", base); if (system(cmd)) {}
     printf("%s\n", fails ? "FAILED" : "all passed");
     return fails ? 1 : 0;
