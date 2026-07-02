@@ -99,6 +99,8 @@ cursor rescan, so it works even after every worker has read past the frame.
     iac leave /tmp/room me     # drop registration
     iac who   /tmp/room        # who is who: name -> pid; online (parked/held) or last-seen
     iac log   /tmp/room        # the whole ordered stream (debug)
+    iac log   /tmp/room -n 20  # just the last 20 frames -- orientation for a fresh agent
+    iac help                   # every verb and env knob, one screen
 
 A new agent joins the chat by knowing the room's directory path and picking a
 name: `iac join`, then loop `iac recv`. `recv` skips messages not addressed to

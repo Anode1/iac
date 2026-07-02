@@ -509,7 +509,26 @@ static int cmd_who(const char *room)
     return 0;
 }
 
-static int cmd_log(const char *room)
+/* Step over one frame in F from the current offset, skipping its body. Returns
+ * the frame's byte length, 0 at clean EOF, or -1 on a partial/corrupt tail.
+ * Leaves F positioned at the start of the next frame. */
+static long frame_skip(FILE *f)
+{
+    char hdr[8192], from[256], to[4096];
+    long epoch, pos = ftell(f), flen;
+    size_t len;
+    if (pos < 0 || fgets(hdr, sizeof hdr, f) == NULL) return 0;      /* EOF */
+    if (strchr(hdr, '\n') == NULL) return -1;                        /* partial header */
+    if (sscanf(hdr, "%255[^|]|%4095[^|]|%ld|%zu", from, to, &epoch, &len) != 4) return -1;
+    flen = (long)strlen(hdr) + (long)len + 1;
+    if (fseek(f, pos + flen, SEEK_SET) != 0) return -1;
+    return flen;
+}
+
+/* Print the room log. With TAIL > 0, print only the last TAIL frames (orientation
+ * for a freshly spawned agent) -- two forward passes: count, then skip all but
+ * the last TAIL and dump the rest verbatim. */
+static int cmd_log(const char *room, long tail)
 {
     char logp[4096], buf[8192];
     size_t n;
@@ -517,18 +536,46 @@ static int cmd_log(const char *room)
     if (p_log(logp, sizeof logp, room)) return die("path too long");
     f = fopen(logp, "r");
     if (f == NULL) return die("no such room");
+    if (tail > 0) {
+        long total = 0, skip;
+        while (frame_skip(f) > 0) total++;           /* pass 1: count frames */
+        rewind(f);
+        skip = total > tail ? total - tail : 0;
+        while (skip-- > 0 && frame_skip(f) > 0) { }   /* pass 2: drop the front */
+    }
     while ((n = fread(buf, 1, sizeof buf, f)) > 0) fwrite(buf, 1, n, stdout);
     fclose(f);
     return 0;
 }
 
+/* One-screen help: every verb, and the env knobs that shape them. */
+static void usage(FILE *out)
+{
+    fputs(
+        "iac -- inter-agent communication over a shared-log room\n\n"
+        "usage:\n"
+        "  iac send  <room> <to> [text...]  append a message (to: name | a,b,c | * | ?; stdin if no text)\n"
+        "  iac recv  <room> <me> [secs]     block for the next message addressed to me (default 60)\n"
+        "  iac ask   <room> <to> [text...]  send, then block for the reply (timeout $IAC_ASK_TIMEOUT)\n"
+        "  iac ack   <room> <me> <id>       mark a claimed \"?\" task done (id from recv's stderr)\n"
+        "  iac join  <room> <me>            register and start at the log's end (skip backlog)\n"
+        "  iac leave <room> <me>            drop registration\n"
+        "  iac hold  <room> <me>            presence beacon: hold until killed (run in background)\n"
+        "  iac who   <room>                 list members: online (parked/held) or last-seen\n"
+        "  iac log   <room> [-n K]          print the room log (last K frames with -n K)\n\n"
+        "env:\n"
+        "  IAC_FROM=<name>       sender name (default anon)\n"
+        "  IAC_CLAIM_TTL=<secs>  a \"?\" task is re-claimable this long after an unacked claim (300)\n"
+        "  IAC_ASK_TIMEOUT=<secs> how long `ask` waits for the reply (60)\n",
+        out);
+}
+
 int main(int argc, char **argv)
 {
     const char *cmd;
-    if (argc < 3) {
-        fprintf(stderr, "usage: iac send|recv|ack|ask|join|leave|hold|who|log <room> [name] ...\n");
-        return 2;
-    }
+    if (argc >= 2 && (strcmp(argv[1], "help") == 0 || strcmp(argv[1], "-h") == 0 ||
+                      strcmp(argv[1], "--help") == 0)) { usage(stdout); return 0; }
+    if (argc < 3) { usage(stderr); return 2; }
     cmd = argv[1];
 
     if (strcmp(cmd, "send") == 0) {
@@ -566,6 +613,10 @@ int main(int argc, char **argv)
         return cmd_hold(argv[2], argv[3]);
     }
     if (strcmp(cmd, "who") == 0)  return cmd_who(argv[2]);
-    if (strcmp(cmd, "log") == 0)  return cmd_log(argv[2]);
-    return die("unknown command (send|recv|ack|ask|join|leave|hold|who|log)");
+    if (strcmp(cmd, "log") == 0) {
+        long tail = (argc >= 5 && strcmp(argv[3], "-n") == 0) ? atol(argv[4]) : 0;
+        return cmd_log(argv[2], tail);
+    }
+    usage(stderr);
+    return die("unknown command");
 }

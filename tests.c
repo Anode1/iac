@@ -234,6 +234,15 @@ int main(void)
     snprintf(path, sizeof path, "%s/o", base);
     CHECK(strcmp(slurp(path, out, sizeof out), "reply:question") == 0, "ask: send-and-await-reply returns the peer's answer");
 
+    /* 19. log -n K: orientation shows only the last K frames, not the whole log */
+    snprintf(room, sizeof room, "%s/r_tail", base);
+    snprintf(cmd, sizeof cmd,
+             "for m in one two three four; do IAC_FROM=x ./iac send %s '*' -- $m; done; "
+             "./iac log %s -n 2 >%s/o 2>/dev/null", room, room, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/o", base); slurp(path, out, sizeof out);
+    CHECK(strstr(out, "three") && strstr(out, "four") && !strstr(out, "one") && !strstr(out, "two"),
+          "log -n K: prints only the last K frames");
+
     snprintf(cmd, sizeof cmd, "rm -rf %s", base); if (system(cmd)) {}
     printf("%s\n", fails ? "FAILED" : "all passed");
     return fails ? 1 : 0;
