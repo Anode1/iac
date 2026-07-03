@@ -29,8 +29,9 @@ for an inbound message to "arrive."
 ## 3. `iac recv` = the agent's `epoll_wait`
 
 A blocking `iac recv <room> <me> <secs>` is an ordinary C process that sleeps
-(a `nanosleep` poll loop today; see inotify below) until a message addressed to
-`<me>` appears in the room, then returns it. Two returns:
+(on Linux, blocked on an inotify watch of `<room>/log`; a 100 ms poll elsewhere --
+see §6) until a message addressed to `<me>` appears in the room, then returns it.
+Two returns:
 
     exit 0  a message on stdout (from/to/ts on stderr)
     exit 1  timed out, nothing for me

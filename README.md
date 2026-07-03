@@ -227,8 +227,10 @@ to `drain` vs park on `recv`.
 
 - Same host / shared filesystem. For across-host, put the room dir on a shared
   mount, or swap the log for a socket (the framing is unchanged).
-- Latency is poll-interval (100 ms) + process spin-up: right for coordination,
-  wrong for a chatty inner-loop protocol.
+- Latency is process spin-up plus the wake: on Linux a parked `recv` wakes on an
+  inotify append event (sub-millisecond, 0% idle CPU); elsewhere it falls back to
+  a 100 ms poll. Either way it is right for coordination, wrong for a chatty
+  inner-loop protocol.
 - Each member reads the whole stream to filter -- fine at coordination scale;
   for a very high-traffic room, shard into more rooms.
 - The log and `claims/` grow unbounded; `iac compact <room>` reclaims them,

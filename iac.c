@@ -48,13 +48,47 @@
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
+#if defined(__linux__)
+#include <sys/inotify.h>        /* wake recv on log append, not on a fixed poll */
+#include <poll.h>
+#endif
 
 #define IAC_MSG_MAX (1 << 20)   /* 1 MiB per message; loud reject above  */
-#define IAC_POLL_MS 100         /* recv poll interval while blocking (ms) */
+#define IAC_POLL_MS 100         /* max idle wait between scans (ms); an upper bound, not a spin */
 
 static char g_body[IAC_MSG_MAX];   /* the one message buffer (send + recv) */
 
 static int die(const char *msg) { fprintf(stderr, "iac: %s\n", msg); return 2; }
+
+/* An inotify fd for waking on <room>/log changes, or -1 (non-Linux, or on error -> poll). */
+static int watch_open(void)
+{
+#if defined(__linux__)
+    return inotify_init1(IN_NONBLOCK);
+#else
+    return -1;
+#endif
+}
+
+/* One idle interval: block up to IAC_POLL_MS for LOGP to change. Linux waits on
+ * inotify (kernel wake on append -- sub-ms, 0% CPU); otherwise a plain sleep.
+ * Either way it returns within IAC_POLL_MS, so the caller's scan/timeout tick is
+ * unchanged -- inotify only makes the wait wake early on a real append. */
+static void idle_wait(int ino, const char *logp)
+{
+#if defined(__linux__)
+    if (ino >= 0) {
+        struct pollfd pfd = { ino, POLLIN, 0 };
+        char buf[4096];
+        inotify_add_watch(ino, logp, IN_MODIFY);   /* idempotent; catches on once the log exists */
+        if (poll(&pfd, 1, IAC_POLL_MS) > 0) while (read(ino, buf, sizeof buf) > 0) { }
+        return;
+    }
+#else
+    (void)ino; (void)logp;
+#endif
+    { struct timespec s = { 0, IAC_POLL_MS * 1000000L }; nanosleep(&s, NULL); }
+}
 
 /* A NAME is one component: [A-Za-z0-9_-]+ (never escapes the room dir). */
 static int ok_name(const char *s)
@@ -315,13 +349,12 @@ static int recover_orphan(const char *room, const char *me)
     return 0;
 }
 
-static int recv_loop(const char *room, const char *me, int timeout_s)
+static int recv_loop(const char *room, const char *me, int timeout_s, int ino)
 {
     char logp[4096], curp[4096], hdr[8192], from[256], to[4096];
     long cursor, epoch, frame_end;
     size_t len;
     int waited_ms = 0, limit_ms = timeout_s * 1000;
-    struct timespec slp = { 0, IAC_POLL_MS * 1000000L };
 
     if (p_log(logp, sizeof logp, room)) return die("path too long");
     if (p_cur(curp, sizeof curp, room, me)) return die("path too long");
@@ -368,16 +401,18 @@ static int recv_loop(const char *room, const char *me, int timeout_s)
         }
         if (recover_orphan(room, me)) return 0;         /* re-run a dead worker's task */
         if (waited_ms >= limit_ms) return 1;            /* nothing for me in time */
-        nanosleep(&slp, NULL);
+        idle_wait(ino, logp);                           /* wake on append (inotify) or after the tick */
         waited_ms += IAC_POLL_MS;
     }
 }
 
-/* recv, wrapped to hold presence for the whole blocking wait (parked == online in who()). */
+/* recv, wrapped to hold presence + an inotify wake for the whole blocking wait. */
 static int cmd_recv(const char *room, const char *me, int timeout_s)
 {
     int pfd = presence_enter(room, me);
-    int rc = recv_loop(room, me, timeout_s);
+    int ino = watch_open();
+    int rc = recv_loop(room, me, timeout_s, ino);
+    if (ino >= 0) close(ino);
     if (pfd >= 0) close(pfd);
     return rc;
 }
@@ -431,10 +466,10 @@ static int cmd_follow(const char *room, const char *me, int idle_s)
     char logp[4096], curp[4096], hdr[8192], from[256], to[4096];
     long cursor, epoch, frame_end;
     size_t len;
-    int waited_ms = 0, limit_ms = idle_s * 1000, pfd;
-    struct timespec slp = { 0, IAC_POLL_MS * 1000000L };
+    int waited_ms = 0, limit_ms = idle_s * 1000, pfd, ino;
     if (p_log(logp, sizeof logp, room) || p_cur(curp, sizeof curp, room, me)) return die("path too long");
     pfd = presence_enter(room, me);
+    ino = watch_open();
     cursor = read_cursor(curp);
     for (;;) {
         struct stat st;
@@ -465,10 +500,11 @@ static int cmd_follow(const char *room, const char *me, int idle_s)
         if (got) waited_ms = 0;                                    /* activity resets the idle clock */
         else {
             if (waited_ms >= limit_ms) break;
-            nanosleep(&slp, NULL);
+            idle_wait(ino, logp);                                  /* wake on append or after the tick */
             waited_ms += IAC_POLL_MS;
         }
     }
+    if (ino >= 0) close(ino);
     if (pfd >= 0) close(pfd);
     return 0;
 }
