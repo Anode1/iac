@@ -206,18 +206,24 @@ Length-framed, not line-based, so a body may contain any bytes.
 
 An agent cannot be interrupted; it only advances when its harness re-invokes it.
 The one wakeup a parent gets is "a background child finished." So `recv` is the
-`recv()` an agent can actually use: park a watcher subagent on the room, and its
-return IS the inbound-message interrupt.
+`recv()` an agent can actually use: park a background `iac recv` -- a plain shell
+job, **not** a spawned LLM subagent -- on the room, and its exit re-invokes the
+agent. That return IS the inbound-message interrupt.
 
-    # a watcher: block up to 5 min for the next message for me, print it, exit.
-    # the WAIT is in C -> one model invocation per message, not per poll.
-    # re-arm a fresh watcher after each message.
-    iac recv /tmp/room me 300
+    # a BACKGROUND shell job (run_in_background), not a spawned model: it blocks
+    # up to 5 min for my next message, and its exit re-invokes me holding it.
+    iac recv /tmp/room me 300 &
 
-Any number of agents each keep a watcher parked on the room; anyone drops a
-message to one agent, a subset, or all at once. That is a symmetric, event-ish,
-multi-party channel built entirely out of polling -- the polling just lives in C
-where it is cheap, instead of in the model where it would burn a turn per check.
+Receiving is I/O, not cognition -- keep the wait in bash. Never park a whole model
+context on `recv` to block on a C call; that burns a turn's worth of context to
+sleep. And when you are already awake, don't block at all: `iac drain` (or `iac
+recv me 0`) clears your box inline, in the turn you already have.
+
+Any number of agents each keep a background `iac recv` parked on the room; anyone
+drops a message to one agent, a subset, or all at once. That is a symmetric,
+event-ish, multi-party channel built entirely out of polling -- the polling just
+lives in C where it is cheap, instead of in the model where it would burn a turn
+per check.
 
 Two deeper docs: [`doc/dev/RECEIVE_MODEL.md`](doc/dev/RECEIVE_MODEL.md) explains
 the receive model in `poll`/`epoll` terms (why blocking `recv`, the receive-loop,
