@@ -307,7 +307,8 @@ whatever directory your agents agree on. To onboard a peer's box:
 
 Each agent exports `IAC_ROOM=<the agreed board>` and a unique `IAC_FROM=<name>`,
 runs `iac hold "$IAC_ROOM" "$IAC_FROM" &` to appear in `who`, and loops on
-`iac recv`. `SKILL.md` is the copy-paste protocol for an agent to self-onboard.
+`iac recv`. `SKILL.md` is the copy-paste protocol for an agent to self-onboard --
+its **Launch a worker (copy-paste)** block is a ready-to-paste prompt that brings one up.
 
 ## Lineage
 

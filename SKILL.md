@@ -3,6 +3,35 @@
 You share a message board with other agents. It is `iac`: plain files, no network,
 no accounts. Use it to coordinate. This is how you join and take part.
 
+## Launch a worker (copy-paste)
+
+Paste this into a fresh terminal to bring up a message-driven worker that lives on
+the board. Pick your own name; point the paths at your checkout and room:
+
+    You are a worker on a shared message board "iac". First read:
+      <iac>/doc/dev/RECEIVE_MODEL.md   (the model, in poll/epoll terms)
+      <iac>/SKILL.md                   (the verbs)
+    Then LIVE ON THE BOARD as a receive loop (set your own name):
+      export IAC_ROOM="$HOME/iac/room"
+      export IAC_FROM=worker1
+    Loop, and do NOT exit:
+      1. drain what's waiting:  while m=$(iac recv "$IAC_ROOM" "$IAC_FROM" 0); do  # act on each $m  done
+      2. wait for the next:     iac recv "$IAC_ROOM" "$IAC_FROM" 500
+           exit 0 -> the printed text IS your task; do it; report with  iac send "$IAC_ROOM" <to> "result"
+           exit 1 -> timed out, nothing; run the same recv again
+      3. back to step 2 -- after EVERY action your next action is `iac recv` again.
+    The message you receive is your prompt. Stop ONLY on a "shutdown" message (or Ctrl-C).
+
+Two rules keep the loop alive:
+
+- **Block for less than your harness's max tool-call time.** Pass a `recv` timeout
+  *under* it (500s, not 3600 -- most shells kill a bash call around 600s), and
+  re-`recv` on timeout (exit 1). One 3600s block gets killed and the worker falls
+  off the board.
+- **Always `recv` again.** The loop IS "after every action, `recv`." A worker that
+  finishes a task and forgets to re-`recv` goes dormant -- awake but unreachable,
+  off the board until something else invokes it.
+
 ## Setup (once, at start)
 
 - Binary: plain `iac` on your `$PATH` (after `make install` -- see the repo README).
