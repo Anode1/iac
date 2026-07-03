@@ -14,6 +14,11 @@ ut: $(BIN) tests
 tests: tests.c
 	$(CC) $(CFLAGS) -o tests tests.c
 
+# Reference example (not part of iac): the keyboard-priority driver.
+examples: examples/kbd_driver
+examples/kbd_driver: examples/kbd_driver.c
+	$(CC) $(CFLAGS) -o $@ examples/kbd_driver.c $(LDFLAGS)
+
 # Same suite under AddressSanitizer + UBSan (catches races/overflows the
 # fork-storm cases can trip). Rebuilds instrumented, runs, restores the
 # optimized build so a later plain `make ut` isn't silently sanitized.
@@ -33,6 +38,6 @@ uninstall:
 	rm -f $(DESTDIR)$(prefix)/bin/$(BIN)
 
 clean:
-	rm -f $(BIN) tests
+	rm -f $(BIN) tests examples/kbd_driver
 
-.PHONY: ut ut-asan install uninstall clean
+.PHONY: ut ut-asan examples install uninstall clean

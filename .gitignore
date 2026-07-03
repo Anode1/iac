@@ -4,3 +4,4 @@ tests
 # a live board (runtime log / cursors / roster / claims) -- never commit it
 room/
 .iac/
+examples/kbd_driver

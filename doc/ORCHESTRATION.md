@@ -113,7 +113,12 @@ a shared mount and keep the board).
 - **Supervision** -- `who` + `hold` beacons to see the fleet; a `shutdown`
   broadcast for graceful stop (hard stop is always `Ctrl-C`/`kill`; RECEIVE_MODEL §8).
 - **Human-in-the-loop** -- the keyboard-priority driver, so a person can interrupt
-  and redirect a running fleet (RECEIVE_MODEL §6).
+  and redirect a running fleet (RECEIVE_MODEL §6). A runnable reference is
+  [`examples/kbd_driver.c`](../examples/kbd_driver.c): it waits on the keyboard and
+  the board in one kernel sleep (inotify on Linux, poll fallback elsewhere),
+  services typed commands first, and runs board messages through a model hook
+  between them. Build with `make examples`; run
+  `IAC=./iac ./examples/kbd_driver <room> <me> ['model command']`.
 
 ## See also
 

@@ -30,6 +30,9 @@ jobs:
         if: runner.os == 'Linux'
         run: make ut-asan
 
+      - name: build examples (compile-check; inotify path on Linux, poll on macOS)
+        run: make examples
+
       - name: name the binary
         run: |
           os=$(uname -s); case "$os" in Linux) os=linux ;; Darwin) os=macos ;; esac
