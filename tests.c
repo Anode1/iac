@@ -264,6 +264,21 @@ int main(void)
     snprintf(path, sizeof path, "%s/nx", base); slurp(path, out, sizeof out);
     CHECK(strcmp(out, "three") == 0, "compact: cursors shift so recv resumes at the right frame");
 
+    /* 22. drain: one non-blocking call returns the whole backlog for me, in order */
+    snprintf(room, sizeof room, "%s/r_drain", base);
+    snprintf(cmd, sizeof cmd,
+             "IAC_FROM=x ./iac send %s a -- one; IAC_FROM=y ./iac send %s a -- two; "
+             "IAC_FROM=z ./iac send %s b -- other; IAC_FROM=w ./iac send %s a -- three; "
+             "./iac drain %s a >%s/o 2>/dev/null; printf %%d $? >%s/rc",
+             room, room, room, room, room, base, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/o", base); slurp(path, out, sizeof out);
+    CHECK(strcmp(out, "one\ntwo\nthree\n") == 0, "drain: returns my whole backlog in order (skips others)");
+    snprintf(path, sizeof path, "%s/rc", base);
+    CHECK(strcmp(slurp(path, out, sizeof out), "0") == 0, "drain: exit 0 when it delivered messages");
+    snprintf(cmd, sizeof cmd, "./iac drain %s a >/dev/null 2>&1; printf %%d $? >%s/r", room, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/r", base);
+    CHECK(strcmp(slurp(path, out, sizeof out), "1") == 0, "drain: exit 1 on an empty box");
+
     snprintf(cmd, sizeof cmd, "rm -rf %s", base); if (system(cmd)) {}
     printf("%s\n", fails ? "FAILED" : "all passed");
     return fails ? 1 : 0;

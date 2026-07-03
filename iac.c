@@ -21,6 +21,7 @@
  *
  *   iac send  <room> <to>   [text...]   append one message (text from args/stdin)
  *   iac recv  <room> <me>   [seconds]   block for the next message addressed to me
+ *   iac drain <room> <me>               deliver ALL my queued messages at once (non-blocking)
  *   iac ack   <room> <me>   <id>        mark a claimed "?" task done (id from recv stderr)
  *   iac ask   <room> <to>   [text...]   send, then block for the reply, in one process
  *   iac join  <room> <me>               start at the log's end + register presence
@@ -381,6 +382,49 @@ static int cmd_recv(const char *room, const char *me, int timeout_s)
     return rc;
 }
 
+/* drain: one non-blocking sweep -- deliver EVERY queued frame for me in order (claiming fresh "?" too), advance past all. exit 0 if any, 1 if empty. */
+static int cmd_drain(const char *room, const char *me)
+{
+    char logp[4096], curp[4096], hdr[8192], from[256], to[4096];
+    long cursor, epoch, frame_end;
+    size_t len;
+    int got = 0, pfd;
+    struct stat st;
+    FILE *f;
+    if (p_log(logp, sizeof logp, room) || p_cur(curp, sizeof curp, room, me)) return die("path too long");
+    pfd = presence_enter(room, me);          /* stamp last-seen; drain is instant, no need to hold the lock */
+    if (pfd >= 0) close(pfd);
+    cursor = read_cursor(curp);
+    if (stat(logp, &st) != 0 || st.st_size <= cursor) return 1;   /* empty box */
+    f = fopen(logp, "r");
+    if (f == NULL) return die("cannot open room log");
+    if (fseek(f, cursor, SEEK_SET) != 0) { fclose(f); return die("seek failed"); }
+    for (;;) {
+        int is_claim, mine;
+        if (fgets(hdr, sizeof hdr, f) == NULL || strchr(hdr, '\n') == NULL) break;
+        if (sscanf(hdr, "%255[^|]|%4095[^|]|%ld|%zu", from, to, &epoch, &len) != 4) { fclose(f); return die("corrupt frame"); }
+        frame_end = cursor + (long)strlen(hdr) + (long)len + 1;
+        if (st.st_size < frame_end) break;       /* body not fully written yet */
+        is_claim = (strcmp(to, "?") == 0);
+        mine = (strcmp(from, me) != 0) && (is_claim ? claim_fresh(room, cursor, me) : to_me(to, me));
+        if (mine) {
+            if (len > sizeof g_body) { fclose(f); return die("message too large"); }
+            if (fread(g_body, 1, len, f) != len) { fclose(f); return die("short read"); }
+            if (is_claim) fprintf(stderr, "iac: from %s to ? at %ld claim %ld\n", from, epoch, cursor);
+            else fprintf(stderr, "iac: from %s to %s at %ld\n", from, to, epoch);
+            fwrite(g_body, 1, len, stdout);
+            fputc('\n', stdout);                 /* separate successive bodies */
+            got++;
+        }
+        cursor = frame_end;
+        if (fseek(f, cursor, SEEK_SET) != 0) { fclose(f); return die("seek failed"); }
+    }
+    fclose(f);
+    write_cursor(curp, cursor);
+    fflush(stdout);
+    return got > 0 ? 0 : 1;
+}
+
 /* tail -f for my messages: stream each frame for me as it lands (never claims "?"); return after IDLE_S of silence. */
 static int cmd_follow(const char *room, const char *me, int idle_s)
 {
@@ -654,6 +698,7 @@ static void usage(FILE *out)
         "usage:\n"
         "  iac send  <room> <to> [text...]  append a message (to: name | a,b,c | * | ?; stdin if no text)\n"
         "  iac recv  <room> <me> [secs]     block for the next message addressed to me (default 60)\n"
+        "  iac drain <room> <me>            deliver ALL my queued messages at once, non-blocking (exit 1 if none)\n"
         "  iac ask   <room> <to> [text...]  send, then block for the reply (timeout $IAC_ASK_TIMEOUT)\n"
         "  iac ack   <room> <me> <id>       mark a claimed \"?\" task done (id from recv's stderr)\n"
         "  iac join  <room> <me>            register and start at the log's end (skip backlog)\n"
@@ -695,6 +740,10 @@ int main(int argc, char **argv)
         t = (secs != NULL) ? atoi(secs) : 60;
         if (t < 0) t = 0;
         return follow ? cmd_follow(room, me, t) : cmd_recv(room, me, t);
+    }
+    if (strcmp(cmd, "drain") == 0) {
+        if (argc < 4 || !ok_name(argv[3])) return die("usage: iac drain <room> <me>");
+        return cmd_drain(argv[2], argv[3]);
     }
     if (strcmp(cmd, "ack") == 0) {
         if (argc < 5 || !ok_name(argv[3])) return die("usage: iac ack <room> <me> <id>");

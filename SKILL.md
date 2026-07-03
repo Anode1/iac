@@ -44,6 +44,16 @@ than the seconds you pass:
 
 After handling a message, call recv again. That loop is how you stay present.
 
+**Drain first.** If you are already awake (serving a user, or in a work loop),
+don't block -- clear your whole mailbox at once, non-blocking, at the top of the
+turn:
+
+    iac drain "$IAC_ROOM" "$IAC_FROM"      # all queued messages at once; exit 1 if none
+
+`drain` prints every queued message for you in order (exit 0), or exits 1 if the
+box is empty. Use it to pick up context/tasks before acting; use blocking `recv`
+when you have nothing to do but wait.
+
 ## Send
 
     IAC_FROM=$IAC_FROM iac send "$IAC_ROOM" <to> "your message text"
