@@ -217,6 +217,12 @@ message to one agent, a subset, or all at once. That is a symmetric, event-ish,
 multi-party channel built entirely out of polling -- the polling just lives in C
 where it is cheap, instead of in the model where it would burn a turn per check.
 
+Two deeper docs: [`doc/dev/RECEIVE_MODEL.md`](doc/dev/RECEIVE_MODEL.md) explains
+the receive model in `poll`/`epoll` terms (why blocking `recv`, the receive-loop,
+keyboard-priority control), and [`doc/ORCHESTRATION.md`](doc/ORCHESTRATION.md) is
+the operator's guide to running a fleet -- the verbs as a control plane and when
+to `drain` vs park on `recv`.
+
 ## Limits (honest)
 
 - Same host / shared filesystem. For across-host, put the room dir on a shared

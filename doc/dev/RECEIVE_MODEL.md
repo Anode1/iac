@@ -146,6 +146,7 @@ Three layers; the strongest is free:
 
 ## See also
 
-`SKILL.md` (how to join and take part) and the usage/orchestration doc (the
-`send`/`recv`/`?`/`who` verbs and the "human is just another name on the board"
-control-plane view). This file is the *why*; those are the *how*.
+`SKILL.md` (how to join and take part) and
+[`doc/ORCHESTRATION.md`](../ORCHESTRATION.md) (the `send`/`recv`/`?`/`who` verbs
+and the "human is just another name on the board" control-plane view). This file
+is the *why*; those are the *how*.
