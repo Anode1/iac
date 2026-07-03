@@ -75,7 +75,7 @@ only re-invoked by its harness. So the primitive it actually needs is not a
 socket but a blocking `recv` whose *return* is the wakeup -- the one signal a
 parent already gets ("a background child finished"). Once receive is a blocking
 poll, the whole problem collapses to files on a shared disk. For a fleet of
-agents on one machine (the common case), that is not a compromise, it is the
+subagents on one machine (the common case), that is not a compromise, it is the
 entire cost: no server to run, no accounts to provision, no network to secure,
 microsecond process start.
 
