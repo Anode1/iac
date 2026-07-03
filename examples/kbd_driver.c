@@ -26,6 +26,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <poll.h>
+#include <signal.h>
 #include <sys/wait.h>
 #if defined(__linux__)
 #include <sys/inotify.h>
@@ -94,9 +95,10 @@ static void wait_ready(int ino, const char *roomlog)
 int main(int argc, char **argv)
 {
     const char *room, *me, *model;
-    char roomlog[4096], line[8192];
+    char roomlog[4096], line[65536];      /* iac messages go up to 1 MB; don't truncate real tasks */
     int ino = -1;
 
+    signal(SIGPIPE, SIG_IGN);             /* a model that ignores its stdin must not kill the driver */
     if (argc < 3) { fprintf(stderr, "usage: kbd_driver <room> <me> ['model command']\n"); return 2; }
     room = argv[1]; me = argv[2]; model = (argc >= 4) ? argv[3] : NULL;
     if ((size_t)snprintf(roomlog, sizeof roomlog, "%s/log", room) >= sizeof roomlog) return 2;
@@ -111,6 +113,7 @@ int main(int argc, char **argv)
 #if defined(__linux__)
         if (ino >= 0) { char b[4096]; while (read(ino, b, sizeof b) > 0) { } }   /* clear inotify (level-triggered) */
 #endif
+        /* priority is BETWEEN turns: while the model runs, pclose blocks, so a keystroke preempts the NEXT input, not the running turn. */
         for (;;) {                                       /* service until idle, KEYBOARD FIRST */
             if (stdin_ready()) {
                 if (fgets(line, sizeof line, stdin) == NULL) { fprintf(stderr, "[driver] eof -- bye\n"); goto done; }
