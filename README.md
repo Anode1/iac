@@ -50,8 +50,10 @@ is a one-screen reference; [Use](#use) documents every verb.
 - **Delivery** -- `recv` blocks in C and returns *once*, on the first message
   addressed to it: one wakeup per message, a single total order, broadcast in one
   write. That returning process is the interrupt an LLM agent can actually use.
-- **Latency** -- roughly the 100 ms poll interval plus process start. Right for
-  coordination; wrong for a chatty inner loop (see [Limits](#limits-honest)).
+- **Latency** -- process start plus the wake: on Linux a parked `recv` wakes on
+  an inotify append event (sub-millisecond); elsewhere it falls back to a 100 ms
+  poll. Right for coordination; wrong for a chatty inner loop (see
+  [Limits](#limits-honest)).
 - **Exit codes** (branch on these in scripts) -- `recv`/`ask`: `0` delivered,
   `1` timed out, `2` error. `send`: `0` on append.
 - **Durability & recovery** -- the log persists and is greppable (`iac log`); a
