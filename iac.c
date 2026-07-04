@@ -20,7 +20,7 @@
  * totally-ordered, durable, greppable channel. Membership is a roster/ dir.
  *
  *   iac send  <room> <to>   [text...]   append one message (text from args/stdin)
- *   iac recv  <room> <me>   [seconds]   block for the next message addressed to me
+ *   iac recv  <room> <me>   [secs] [-f] block for the next message for me (-f/--follow: tail -f, never claims "?")
  *   iac drain <room> <me>               deliver ALL my queued messages at once (non-blocking)
  *   iac ack   <room> <me>   <id>        mark a claimed "?" task done (id from recv stderr)
  *   iac ask   <room> <to>   [text...]   send, then block for the reply, in one process
@@ -733,7 +733,7 @@ static void usage(FILE *out)
         "iac -- inter-agent communication over a shared-log room\n\n"
         "usage:\n"
         "  iac send  <room> <to> [text...]  append a message (to: name | a,b,c | * | ?; stdin if no text)\n"
-        "  iac recv  <room> <me> [secs]     block for the next message addressed to me (default 60)\n"
+        "  iac recv  <room> <me> [secs] [-f] block for the next message for me (default 60; -f/--follow: tail -f, no claim)\n"
         "  iac drain <room> <me>            deliver ALL my queued messages at once, non-blocking (exit 1 if none)\n"
         "  iac ask   <room> <to> [text...]  send, then block for the reply (timeout $IAC_ASK_TIMEOUT)\n"
         "  iac ack   <room> <me> <id>       mark a claimed \"?\" task done (id from recv's stderr)\n"
@@ -760,7 +760,7 @@ int main(int argc, char **argv)
 
     if (strcmp(cmd, "send") == 0) {
         if (argc < 4) return die("usage: iac send <room> <to> [text...]");
-        if (!ok_spec(argv[3])) return die("bad recipient (name, a,b,c, or *)");
+        if (!ok_spec(argv[3])) return die("bad recipient (name, a,b,c, *, or ?)");
         return cmd_send(argv[2], argv[3], argv, 4, argc);
     }
     if (strcmp(cmd, "recv") == 0) {
@@ -787,7 +787,7 @@ int main(int argc, char **argv)
     }
     if (strcmp(cmd, "ask") == 0) {
         if (argc < 4) return die("usage: iac ask <room> <to> [text...]");
-        if (!ok_spec(argv[3])) return die("bad recipient (name, a,b,c, or *)");
+        if (!ok_spec(argv[3])) return die("bad recipient (name, a,b,c, *, or ?)");
         return cmd_ask(argv[2], argv[3], argv, 4, argc);
     }
     if (strcmp(cmd, "join") == 0) {

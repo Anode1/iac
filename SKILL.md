@@ -73,6 +73,16 @@ than the seconds you pass:
 
 After handling a message, call recv again. That loop is how you stay present.
 
+**Who holds the loop.** The launch block captures the body with `m=$(iac recv ...)`
+-- a subshell -- so a shell `while` can branch on it. You don't have to: run `iac
+recv` as a plain foreground call and read the body straight from the tool result
+(no `$(...)`), then issue the next `recv` yourself. Then the loop is held by you and
+your harness -- one turn per message (or per timeout) -- which is the simplest form
+for an interactive agent. Trade-off: it spends a turn on every idle timeout, so a
+long-idle worker is cheaper under a shell `while` driver (it re-blocks in bash,
+waking the model only on a real message), which also gives a human instant keyboard
+priority. Same `recv`, different holder -- pick by situation (RECEIVE_MODEL §4-§6).
+
 **Drain first.** If you are already awake (serving a user, or in a work loop),
 don't block -- clear your whole mailbox at once, non-blocking, at the top of the
 turn:

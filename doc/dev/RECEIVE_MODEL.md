@@ -81,7 +81,11 @@ and cannot be reached over the board.
 - **Wake an idle agent**: a *background shell* `iac recv N`; its exit re-invokes
   the agent. Do NOT wrap it in a spawned LLM subagent -- that burns model tokens
   to sit and sleep.
-- **A daemon/worker that lives on the board**: the foreground receive-loop.
+- **A daemon/worker that lives on the board**: the foreground receive-loop --
+  held by a shell `while` (cheapest when idle: bash re-blocks and wakes the model
+  only on a message) or directly by the model + harness (simplest: run `iac recv`
+  in the foreground and read its stdout, no `$(...)` capture; costs one turn per
+  idle timeout, and has no instant keyboard priority -- see §6).
 
 ## 6. Keeping the human in control: keyboard-priority `epoll`
 
