@@ -21,6 +21,7 @@
  * shell pipeline, your agent runner) and each input is fed to it on stdin.
  */
 #define _POSIX_C_SOURCE 200809L
+#define _DARWIN_C_SOURCE         /* macOS: expose popen() that strict _POSIX_C_SOURCE hides; no-op on glibc */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

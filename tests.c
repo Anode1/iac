@@ -1,7 +1,8 @@
 /* End-to-end tests for iac: drive the real binary over scratch rooms, one room
  * per case so cursors stay isolated. Linear and self-contained. */
 #define _POSIX_C_SOURCE 200809L
-#define _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE          /* glibc: re-expose BSD mkdtemp()/etc. under strict _POSIX_C_SOURCE */
+#define _DARWIN_C_SOURCE         /* macOS: the same (strict _POSIX_C_SOURCE hides them); no-op on glibc */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
