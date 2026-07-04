@@ -190,6 +190,11 @@ outside observer can tell which OS process is `john` and which is `nick`:
     /tmp/room/roster/john   ->  "<join_epoch> <pid> <seen_epoch>"
     /tmp/room/roster/nick   ->  "<join_epoch> <pid> <seen_epoch>"
 
+The `<pid>` is restamped to the current holder on every `recv`/`hold`, so for an
+online name it always points at a **live** process, self-healing each cycle -- not
+the one-time registering pid, which could otherwise linger (even dead) while a
+recv-only agent kept the name online via the flock.
+
 Liveness is a held `flock`, not a periodic heartbeat: while an agent is listening
 its roster entry is flock-held, and `iac who` probes the lock -- held means
 online. **A parked `recv` counts as presence**: `recv` takes a *shared* lock on
