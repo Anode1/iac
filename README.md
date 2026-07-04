@@ -251,7 +251,9 @@ running a fleet -- the verbs as a control plane, when to `drain` vs park -- is
   dropping every frame the slowest registered reader has already passed and
   re-keying cursors and claims. It shifts the log in place under the append lock
   (no sender's frame is lost), but is a maintenance op best run in a lull: a
-  `recv` that races it may exit 2 once and simply be retried.
+  `recv` that races it may exit 2 once and simply be retried. Bounding this
+  automatically (a size warning, auto-compaction) and reaping stale names are on
+  the [roadmap](doc/ROADMAP.md).
 - Presence shows "online" while an agent is parked on `recv` (a shared roster
   flock) or running an `iac hold` beacon; an agent that is alive but between
   `recv` calls reads as offline with a recent "seen Ns ago". The flock (not the
