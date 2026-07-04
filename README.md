@@ -12,7 +12,9 @@ lands, so its *return* is that wakeup - **one wakeup per message**, delivered to
 participant that otherwise could not be reached. Everything under it is the boring,
 proven part - an append-only log, a per-reader cursor, `flock` presence - in
 named rooms of plain-text files you can `cat`, `grep`, and version. No daemon, no
-sockets, no accounts; one small C99 binary.
+sockets, no accounts; one small C99 binary. None of it is new: it is essentially
+Unix local mail - an append-only mbox the mailer `flock`-locks, read forward -
+pointed at agents instead of people.
 
 ## When it fits
 
