@@ -189,7 +189,8 @@ int main(void)
              "rm -f %s/drain; for i in $(seq 16); do ./iac recv %s rdr 3 >>%s/drain 2>/dev/null && echo >>%s/drain; done",
              base, room, base, base); if (system(cmd)) {}
     snprintf(cmd, sizeof cmd,
-             "printf '%%s %%s' \"$(grep -c '^storm' %s/drain)\" \"$(grep '^storm' %s/drain | sort -u | wc -l)\" >%s/cnt",
+             /* count then distinct-count; grep -c (not `wc -l`, which pads with leading spaces on BSD/macOS) */
+             "printf '%%s %%s' \"$(grep -c '^storm' %s/drain)\" \"$(grep '^storm' %s/drain | sort -u | grep -c '^storm')\" >%s/cnt",
              base, base, base); if (system(cmd)) {}
     snprintf(path, sizeof path, "%s/cnt", base);
     CHECK(strcmp(slurp(path, out, sizeof out), "16 16") == 0, "fork-storm: 16 concurrent senders append 16 intact, distinct frames");
