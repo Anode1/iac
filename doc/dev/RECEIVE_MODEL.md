@@ -124,6 +124,23 @@ elsewhere fall back to a short poll of the box interleaved with a non-blocking
   mail? no." pays a full inference per check -- you are paying the LLM to stare
   at an empty box. A CPU thread checking a flag costs a nanosecond; an agent
   "checking" costs a turn. That asymmetry is why the wait belongs in C.
+- **Idle is free only when bash holds the loop.** A background shell `while` driver
+  re-blocks in C on every timeout *without invoking the model*, so an idle worker
+  costs **zero tokens -- whether it waits minutes or days**:
+
+      while :; do
+        m=$(iac recv "$IAC_ROOM" "$IAC_FROM" 3600) && { printf '%s\n' "$m"; break; }
+      done
+
+  On a timeout (exit 1) bash simply loops and re-blocks -- no request to the model
+  server at all. Only a real message (exit 0) breaks the loop and ends the job,
+  and *that* is the single event that invokes the model. Contrast the model-held
+  foreground loop (§5): it wakes on *every* timeout, and any wake past the model's
+  prompt-cache TTL (~5 min) re-sends the entire conversation as fresh input -- a
+  full-context inference bought to look at an empty box. A stateless model re-reads
+  all prior context on each call, so an idle poll it holds is never cheap. For a
+  long-lived worker: put the loop in bash, and keep the model asleep until there is
+  real work.
 
 ## 8. Termination
 
