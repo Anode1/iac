@@ -14,8 +14,10 @@ ut: $(BIN) tests
 tests: tests.c
 	$(CC) $(CFLAGS) -o tests tests.c
 
-# Reference example (not part of iac): the keyboard-priority driver.
+# Reference examples (not part of iac): the keyboard-priority driver (C) and the
+# Telegram <-> board bridge (shell; syntax-checked, needs curl/jq to run).
 examples: examples/kbd_driver
+	bash -n examples/tg_bridge.sh
 examples/kbd_driver: examples/kbd_driver.c
 	$(CC) $(CFLAGS) -o $@ examples/kbd_driver.c $(LDFLAGS)
 

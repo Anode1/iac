@@ -27,7 +27,9 @@ coordinate -- the setup it was built for:
   worker; if that worker dies mid-job, the task re-runs after its TTL -- a
   no-coordinator work queue.
 - **Keep a human in control.** A person is just another name on the board; a
-  keyboard-priority driver lets them interrupt and redirect a running fleet.
+  keyboard-priority driver lets them interrupt and redirect a running fleet --
+  locally, or from a phone through a messenger [bridge](doc/INTEGRATION.md)
+  (Telegram, WhatsApp, …).
 
 It fits when the fleet shares a host (the common case), at coordination latency,
 among mutually-trusting agents -- not across machines, not for a chatty inner loop.
@@ -330,8 +332,8 @@ preferred plain text files and small Unix tools to heavier machinery. He first
 simulated asynchronous agent communication in Ada at university in 1995, using
 its elegant rendezvous mechanism. Having specialized in AI -- the era when agents
 were built on frames and rule-based systems -- he had programmed a few such
-systems at work, on custom DSLs and in C. He tried to build software agents in
-Java in early 2001 -- including a backprop neural network with
+systems at work, on custom DSLs and in Java and C. He tried to build software
+agents in Java in early 2001 -- including a backprop neural network with
 hyperparameterization -- and around the same time wrote `ljms`, a peer-to-peer
 message broker with broadcast and multicast. But his pitch was not successful; it
 was too early: no one was hiring AI specialists in his proximity then, and agents
