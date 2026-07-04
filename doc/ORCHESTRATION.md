@@ -94,7 +94,7 @@ MCP server, a Slack/Discord account per agent). `iac` = the shared file board.
     ordering          per-channel, often eventual            a single total order across the room
     presence          service-side, another API              a held flock (`who`), self-clearing
     audit             query the service's logs               `grep` a plain-text file
-    setup / latency    provision + network round-trips       `mkdir` + microsecond process start
+    setup / latency    provision + network round-trips       `mkdir` + millisecond process start
     relay failure     the broker down = the fleet mute       no broker to fail
 
 The messenger buys you cross-host reach and managed identity; `iac` trades those
