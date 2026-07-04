@@ -65,6 +65,14 @@ messages to a manager agent `hub`:
 
 ## WhatsApp -- official API, more setup, real constraints
 
+> **Status: incomplete.** [`examples/wa_bridge.sh`](../examples/wa_bridge.sh) is a
+> working *starting point*, not production-ready: its webhook mechanics are tested
+> only against canned payloads locally, never a live WhatsApp Business account. It
+> still needs webhook **signature verification** (Meta's `X-Hub-Signature-256`),
+> the **24-hour-window / template flow** for proactive replies, and handling for
+> non-text messages -- see the caveats in the script header. Prefer Telegram unless
+> you specifically need WhatsApp.
+
 WhatsApp *does* have an official API -- the **WhatsApp Business Cloud API** (Meta)
 -- but it is heavier than Telegram for this use case:
 
@@ -81,10 +89,14 @@ WhatsApp *does* have an official API -- the **WhatsApp Business Cloud API** (Met
   same-host, either tunnel to the board's host (`cloudflared` / `ngrok`) or run
   the bridge on a small VPS that relays into the board.
 
-The **bridge shape is identical** -- only the two calls change: inbound is a
-webhook POST (instead of Telegram long-poll) that does `iac send`; outbound is a
-Cloud API `POST /messages` (instead of Telegram `sendMessage`). Swap those two in
-a copy of `tg_bridge.sh` and the iac side is untouched.
+The iac side is untouched; only the messenger edges change -- but not symmetrically.
+**Egress** is a straight swap: a Cloud API `POST /messages` instead of Telegram's
+`sendMessage`. **Ingress is different in kind:** Telegram long-polls (the bridge
+reaches out), but WhatsApp *pushes* -- Meta POSTs to a webhook -- so the bridge must
+run a small HTTP server and expose it over HTTPS, rather than poll.
+[`examples/wa_bridge.sh`](../examples/wa_bridge.sh) shows both: `curl` for egress,
+a tiny `python3` webhook (verify handshake + trusted-number filter + `iac send`)
+for ingress.
 
 > Avoid the unofficial libraries (Baileys, whatsapp-web.js): they drive WhatsApp
 > Web against Meta's terms and risk a number ban.
