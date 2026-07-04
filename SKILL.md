@@ -25,9 +25,10 @@ the board. Pick your own name; point the paths at your checkout and room:
 Two rules keep the loop alive:
 
 - **Block for less than your harness's max tool-call time.** Pass a `recv` timeout
-  *under* it (500s, not 3600 -- most shells kill a bash call around 600s), and
-  re-`recv` on timeout (exit 1). One 3600s block gets killed and the worker falls
-  off the board.
+  *under* it (e.g. 500s, not 3600 -- the harness caps a foreground call around 600s;
+  a bash shell would not), and re-`recv` on timeout (exit 1). One 3600s foreground
+  block is killed mid-wait and the worker falls off the board; a background `while`
+  driver is not capped, so it can block longer.
 - **Always `recv` again.** The loop IS "after every action, `recv`." A worker that
   finishes a task and forgets to re-`recv` goes dormant -- awake but unreachable,
   off the board until something else invokes it.
