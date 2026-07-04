@@ -5,35 +5,35 @@
 A tiny, dependency-free message board that gives a fleet of agents on one machine
 the one thing they lack: a **wakeup**.
 
-An LLM agent has no *interrupt inlet* -- no socket, no thread, nothing the outside
-world can poke to rouse it between turns; it advances only when its harness
+An LLM agent has no *interrupt inlet*: no socket, no thread, nothing the outside
+world can poke to rouse it between turns. It advances only when its harness
 re-invokes it. `iac` is a `recv` that blocks in C until a message addressed to it
-lands, so its *return* is that wakeup -- **one wakeup per message**, delivered to a
+lands, so its *return* is that wakeup, **one wakeup per message**, delivered to a
 participant that otherwise could not be reached. Everything under it is the boring,
-proven part -- an append-only log, a per-reader cursor, `flock` presence -- in
-named rooms of plain-text files you can `cat`, `grep`, and version. No daemon, no
+proven part (an append-only log, a per-reader cursor, `flock` presence) in named
+rooms of plain-text files you can `cat`, `grep`, and version. No daemon, no
 sockets, no accounts; one small C99 binary.
 
 ## When it fits
 
 Reach for `iac` when several agents (or subagents) share one machine and have to
-coordinate -- the setup it was built for:
+coordinate. It is the setup it was built for:
 
 - **Wake an idle agent.** A parked `recv` returns the instant a message for it
   lands, and that return re-invokes the agent.
 - **Fan out and gather.** `send *` a task to the whole fleet and collect replies;
   broadcast is a single append, not N sends, in one total order everyone shares.
 - **Dispatch to whoever is free.** `send ?` hands a job to exactly one idle
-  worker; if that worker dies mid-job, the task re-runs after its TTL -- a
+  worker; if that worker dies mid-job, the task re-runs after its TTL, a
   no-coordinator work queue.
 - **Keep a human in control.** A person is just another name on the board; a
-  keyboard-priority driver lets them interrupt and redirect a running fleet --
-  locally, or from a phone through a messenger [bridge](doc/INTEGRATION.md)
+  keyboard-priority driver lets them interrupt and redirect a running fleet,
+  locally or from a phone through a messenger [bridge](doc/INTEGRATION.md)
   (Telegram, WhatsApp, …).
 
 It fits when the fleet shares a host (the common case), at coordination latency,
-among mutually-trusting agents -- not across machines, not for a chatty inner loop.
-Why files-and-a-`recv` beats a cloud queue, MCP server, or bot is in
+among mutually-trusting agents. Not across machines, and not for a chatty inner
+loop. Why files-and-a-`recv` beats a cloud queue, MCP server, or bot is in
 [Why not a message queue…](#why-not-a-message-queue-an-mcp-server-or-a-bot).
 
 ## Getting started
@@ -41,12 +41,12 @@ Why files-and-a-`recv` beats a cloud queue, MCP server, or bot is in
 ### Supported systems
 
 `iac` is a POSIX program. It runs natively on **Linux** (the primary target) and
-**macOS** (both CI-tested). On **Windows** there is no native build -- run it under
+**macOS** (both CI-tested). On **Windows** there is no native build: run it under
 **WSL** (which is Linux, so it works unchanged) or build under Cygwin/MSYS2 (see
 [Platforms](#platforms) for the why). Two requirements: every participant must
 share one filesystem (the same host, or a shared mount), and to build you need
-only a C99 compiler and `make` -- zero dependencies, so there are no binaries to
-download.
+only a C99 compiler and `make`, with zero dependencies, so there are no binaries
+to download.
 
 ### How to run
 
@@ -69,18 +69,18 @@ is a one-screen reference; [Use](#use) documents every verb.
 
 ### What to expect
 
-- **Delivery** -- `recv` returns *once*, on the first message addressed to you: a
+- **Delivery:** `recv` returns *once*, on the first message addressed to you: a
   single total order, and broadcast is one write regardless of audience.
-- **Latency** -- process start plus the wake: on Linux a parked `recv` wakes on
+- **Latency:** process start plus the wake. On Linux a parked `recv` wakes on
   an inotify append event (sub-millisecond); elsewhere it falls back to a 100 ms
   poll. Right for coordination; wrong for a chatty inner loop (see
   [Limits](#limits-honest)).
-- **Exit codes** (branch on these in scripts) -- `recv`/`ask`: `0` delivered,
-  `1` timed out, `2` error. `send`: `0` on append.
-- **Durability & recovery** -- the log persists and is greppable (`iac log`); a
+- **Exit codes** (branch on these in scripts): `recv`/`ask` give `0` delivered,
+  `1` timed out, `2` error; `send` gives `0` on append.
+- **Durability & recovery:** the log persists and is greppable (`iac log`); a
   `?` work item whose worker dies is re-run after its TTL, so a crash doesn't lose
   the job (the worker `iac ack`s on completion).
-- **What it is _not_** -- not authenticated or multi-tenant: any participant can
+- **What it is _not_:** not authenticated or multi-tenant. Any participant can
   read every message and post under any name ([Trust model](#trust-model)). Not
   cross-host without a shared mount, and not low-latency.
 
@@ -91,14 +91,14 @@ queue, an MCP server, a shared vector store, or a chat account per agent
 (Slack/Discord bots). That all assumes "agents talk" means a network service,
 with the infrastructure, credentials, and latency to match.
 
-But the wakeup an agent needs (above) is not a socket -- it is a blocking `recv`
+But the wakeup an agent needs (above) is not a socket; it is a blocking `recv`
 whose *return* is the one signal a parent already gets, "a background child
 finished." Once receive is a blocking poll, the whole problem collapses to files
 on a shared disk: for a fleet on one machine (the common case) that is not a
-compromise but the entire cost -- no server, no accounts, no network to secure,
-microsecond start. A heavy service earns its keep only when the fleet must span
-machines; `iac` is the point almost nobody targets, because the network-service
-assumption hides it.
+compromise but the entire cost: no server, no accounts, no network to secure,
+millisecond process start. A heavy service earns its keep only when the fleet must
+span machines; `iac` is the point almost nobody targets, because the
+network-service assumption hides it.
 
 ## Model
 
@@ -125,7 +125,7 @@ Recipient field (`to`):
 `?` is competing-consumers: every idle member sees the task, but exactly one
 atomically claims it (an `O_CREAT|O_EXCL` create keyed on the message's log
 offset), so a "whoever is free" job runs once across a pool of workers with no
-coordinator. It is an agents-only board -- every name is an agent, and a human
+coordinator. It is an agents-only board: every name is an agent, and a human
 takes part by asking an agent to post, not by holding a channel of their own.
 
 A `?` claim is **crash-recoverable**. The worker `iac ack`s the task once it is
@@ -191,24 +191,24 @@ outside observer can tell which OS process is `john` and which is `nick`:
     /tmp/room/roster/nick   ->  "<join_epoch> <pid> <seen_epoch>"
 
 The `<pid>` is restamped to the current holder on every `recv`/`hold`, so for an
-online name it always points at a **live** process, self-healing each cycle -- not
-the one-time registering pid, which could otherwise linger (even dead) while a
+online name it always points at a **live** process, self-healing each cycle. It is
+not the one-time registering pid, which could otherwise linger (even dead) while a
 recv-only agent kept the name online via the flock.
 
 Liveness is a held `flock`, not a periodic heartbeat: while an agent is listening
-its roster entry is flock-held, and `iac who` probes the lock -- held means
+its roster entry is flock-held, and `iac who` probes the lock; held means
 online. **A parked `recv` counts as presence**: `recv` takes a *shared* lock on
 its roster entry for the whole blocking wait, so an agent looping on `recv` shows
 online with no separate process. `iac hold` is the same signal for an agent that
 wants to advertise presence while it is off doing work rather than parked on
 `recv`; because the lock is shared, a `hold` beacon and a `recv` loop on one name
 coexist instead of fighting. The OS drops the lock the instant the holder dies
-(even on SIGKILL), so a crash shows offline immediately -- nothing to reap, no
+(even on SIGKILL), so a crash shows offline immediately: nothing to reap, and no
 pid-reuse guessing (the lock, not the pid, is the signal).
 
-For an agent that is neither parked nor holding a beacon -- alive but busy
-between `recv` calls -- `who` falls back to the **last-seen** stamp `recv` writes
-each call, so you can still tell recently-active from long-gone:
+For an agent that is neither parked nor holding a beacon (alive but busy between
+`recv` calls), `who` falls back to the **last-seen** stamp `recv` writes each
+call, so you can still tell recently-active from long-gone:
 
     iac who /tmp/room
     john   online   pid 40021  active now         # parked on recv (or holding a beacon)
@@ -225,33 +225,34 @@ Length-framed, not line-based, so a body may contain any bytes.
 ## The receive pattern (how an agent lives on the board)
 
 The wakeup only pays off if you spend it right. Park a **background** `iac recv`
--- a plain shell job, **not** a spawned LLM subagent -- and its exit re-invokes
-the agent holding the message:
+(a plain shell job, **not** a spawned LLM subagent), and its exit re-invokes the
+agent holding the message:
 
     # a BACKGROUND shell job (run_in_background), not a spawned model: it blocks
     # up to 5 min for my next message, and its exit re-invokes me holding it.
     iac recv /tmp/room me 300 &
 
-Two rules keep the cost near zero: receiving is I/O, not cognition, so keep the
-wait in bash -- never park a whole model context on `recv` to block on a C call;
-and when you are already awake, don't block at all -- `iac drain` (or `iac recv me
-0`) clears your box inline, in the turn you already have.
+Two rules keep the cost near zero. Receiving is I/O, not cognition, so keep the
+wait in bash: never park a whole model context on `recv` to block on a C call.
+And when you are already awake, don't block at all. `iac drain` empties your whole
+box inline (or `iac recv me 0` for one message at a time), in the turn you already
+have.
 
 The full model, in `poll`/`epoll` terms (the receive-loop, keyboard-priority
-control), is in [`doc/dev/RECEIVE_MODEL.md`](doc/dev/RECEIVE_MODEL.md); the guide to
-running a fleet -- the verbs as a control plane, when to `drain` vs park -- is
+control), is in [`doc/dev/RECEIVE_MODEL.md`](doc/dev/RECEIVE_MODEL.md); the guide
+to running a fleet (the verbs as a control plane, when to `drain` vs park) is
 [`doc/ORCHESTRATION.md`](doc/ORCHESTRATION.md).
 
 ## Limits (honest)
 
 - Same host / shared filesystem. For across-host, put the room dir on a shared
   mount, or swap the log for a socket (the framing is unchanged).
-- Latency is process spin-up plus the wake: on Linux a parked `recv` wakes on an
+- Latency is process spin-up plus the wake. On Linux a parked `recv` wakes on an
   inotify append event (sub-millisecond, 0% idle CPU); elsewhere it falls back to
   a 100 ms poll. Either way it is right for coordination, wrong for a chatty
   inner-loop protocol.
-- Each member reads the whole stream to filter -- fine at coordination scale;
-  for a very high-traffic room, shard into more rooms.
+- Each member reads the whole stream to filter. Fine at coordination scale; for a
+  very high-traffic room, shard into more rooms.
 - The log and `claims/` grow unbounded; `iac compact <room>` reclaims them,
   dropping every frame the slowest registered reader has already passed and
   re-keying cursors and claims. It shifts the log in place under the append lock
@@ -269,7 +270,7 @@ running a fleet -- the verbs as a control plane, when to `drain` vs park -- is
 `iac` is **cooperative and same-host by design**. The security boundary is the
 filesystem: the room is a directory (created `0700`), so the operating system's
 permissions on that directory decide who may take part. Anyone who can read and
-write the room dir is a full participant -- there is no in-band authentication,
+write the room dir is a full participant; there is no in-band authentication,
 and none is intended for the common case (one user's own agents on one machine).
 
 Concretely, within a room:
@@ -288,7 +289,7 @@ Concretely, within a room:
 If untrusted participants ever had to share a room, the frame is the natural
 place to add authentication **without changing the transport**: carry a
 per-message HMAC (or a signature) over `from|to|epoch|body`, keyed by a secret
-each legitimate agent holds, and have `recv` verify it before delivery -- reject
+each legitimate agent holds, and have `recv` verify it before delivery, rejecting
 frames that do not verify. That promotes `from` from a label to a checkable
 claim while the room stays an append-only, greppable log. Pair it with the
 shared-mount or socket note above for the cross-host case. Until there is a real
@@ -312,9 +313,9 @@ separate ASan/UBSan lane on both (the badge up top).
 
 ## Coding style
 
-iac is written to the same standard as the AIS engine -- the NASA/JPL *Power of
-Ten* and MISRA-C:2012 discipline for safety-critical C: **no heap on any path**
-(peak footprint is a function of the struct sizes, not the data -- a 1 KB room and
+iac is written to the same standard as the AIS engine: the NASA/JPL *Power of
+Ten* and MISRA-C:2012 discipline for safety-critical C. **No heap on any path**
+(peak footprint is a function of the struct sizes, not the data: a 1 KB room and
 a 1 GB room run in the same memory), **bounded strings only** (`snprintf`, never
 `strcpy`/`sprintf`), **single-exit `goto` cleanup** for any function that holds a
 file or a lock, and a clean build under `-pedantic` plus AddressSanitizer and
@@ -325,17 +326,17 @@ conforms to the canonical document:
 ## Platforms
 
 The reason iac is Unix-native (and not native to Windows) is its primitives. The
-core one is `flock` -- it orders appends, backs presence, guards claims, and locks
-the log during `compact` -- alongside `writev`, `pread`/`pwrite`, and `dirent`.
+core one is `flock` (it orders appends, backs presence, guards claims, and locks
+the log during `compact`), alongside `writev`, `pread`/`pwrite`, and `dirent`.
 All are POSIX and present on Linux and macOS; none is native to
 Windows. **On Windows, run it under WSL** (it is Linux, so it works unchanged);
 Cygwin/MSYS2 also build it via their POSIX layer. A native port would mean
-swapping `flock` for `LockFileEx` and friends behind `#ifdef`s -- deliberately
+swapping `flock` for `LockFileEx` and friends behind `#ifdef`s, deliberately
 not done, to keep the source spare.
 
 ## Drop it in for a fleet of agents
 
-Nothing is baked to one machine -- the binary goes on `$PATH`, and the board is
+Nothing is baked to one machine: the binary goes on `$PATH`, and the board is
 whatever directory your agents agree on. To onboard a peer's box:
 
     git clone <this repo> && cd iac
@@ -344,7 +345,7 @@ whatever directory your agents agree on. To onboard a peer's box:
 
 Each agent exports `IAC_ROOM=<the agreed board>` and a unique `IAC_FROM=<name>`,
 runs `iac hold "$IAC_ROOM" "$IAC_FROM" &` to appear in `who`, and loops on
-`iac recv`. `SKILL.md` is the copy-paste protocol for an agent to self-onboard --
+`iac recv`. `SKILL.md` is the copy-paste protocol for an agent to self-onboard;
 its **Launch a worker (copy-paste)** block is a ready-to-paste prompt that brings one up.
 
 ## Lineage
@@ -353,25 +354,25 @@ The shape is older than the LLMs it now serves, and so is the taste behind it.
 The author has run Linux since 1994 (Slackware 2, kernel 1.x) and has always
 preferred plain text files and small Unix tools to heavier machinery. He first
 simulated asynchronous agent communication in Ada at university in 1995, using
-its elegant rendezvous mechanism. Having specialized in AI -- the era when agents
-were built on frames and rule-based systems -- he had programmed a few such
+its elegant rendezvous mechanism. Having specialized in AI (the era when agents
+were built on frames and rule-based systems), he had programmed a few such
 systems at work, on custom DSLs and in Java and C. He tried to build software
-agents in Java in early 2001 -- including a backprop neural network with
-hyperparameterization -- and around the same time wrote `ljms`, a peer-to-peer
+agents in Java in early 2001, including a backprop neural network with
+hyperparameterization, and around the same time wrote `ljms`, a peer-to-peer
 message broker with broadcast and multicast. But his pitch was not successful; it
-was too early: no one was hiring AI specialists in his proximity then, and agents
-stayed a private pursuit while he spent the next twenty
-years building Java servers, and applications in both C and Java. Twenty-five
-years later the participants finally showed up. `iac` is those same instincts -- a
-shared broker; addressed, broadcast, and claim-one messages; presence; every bit
-of it a greppable file --
-distilled to a single dependency-free C binary and pointed at the participant
-that at last exists: an agent, which can only be woken by a returning process.
+was too early. No one was hiring AI specialists in his proximity then, and agents
+stayed a private pursuit while he spent the next twenty years building Java
+servers, and applications in both C and Java. Twenty-five years later the
+participants finally showed up. `iac` is those same instincts, a shared broker
+with addressed, broadcast, and claim-one messages and presence, every bit of it a
+greppable file, distilled to a single dependency-free C binary and pointed at the
+participant that at last exists: an agent, which can only be woken by a returning
+process.
 
 <img src="screenshots/bigus-bigus-1998-constructing-intelligent-agents-with-java.jpg" alt="Joseph P. Bigus and Jennifer Bigus, Constructing Intelligent Agents with Java (Wiley, 1998)" width="240">
 
-*Joseph P. Bigus & Jennifer Bigus, Constructing Intelligent Agents with Java (Wiley, 1998) -- a period marker for the Java-agents pursuit above.*
+*Joseph P. Bigus & Jennifer Bigus, Constructing Intelligent Agents with Java (Wiley, 1998): a period marker for the Java-agents pursuit above.*
 
 ## License
 
-ISC (see LICENSE) -- do anything, keep the notice, no warranty.
+ISC (see LICENSE): do anything, keep the notice, no warranty.

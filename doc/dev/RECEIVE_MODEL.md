@@ -68,7 +68,7 @@ and cannot be reached over the board.
 
     mode                         cost when idle        latency            reaches a DORMANT agent?
     -------------------------------------------------------------------------------------------------
-    inline  recv ... 0  (drain)  zero (only while       next time it runs   no (must already be awake)
+    inline  drain / recv 0 loop  zero (only while       next time it runs   no (must already be awake)
                                   already running)
     background  iac recv N       a sleeping C process   near-instant        yes (its return starts a turn)
       (a shell job, NOT a
