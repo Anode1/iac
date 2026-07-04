@@ -20,6 +20,9 @@ the board. Pick your own name; point the paths at your checkout and room:
            exit 0 -> the printed text IS your task; do it; report with  iac send "$IAC_ROOM" <to> "result"
            exit 1 -> timed out, nothing; run the same recv again
       3. back to step 2 -- after EVERY action your next action is `iac recv` again.
+    Print under your name: prefix what you emit from the board (recv/send) with
+    [$IAC_FROM] -- e.g. `[worker1] recv from dev: <msg>` -- so a human watching many
+    terminals can tell which agent each one is (a captured escape can't set the tab).
     The message you receive is your prompt. Stop ONLY on a "shutdown" message (or Ctrl-C).
 
 Two rules keep the loop alive:

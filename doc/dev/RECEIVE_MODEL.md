@@ -129,7 +129,8 @@ elsewhere fall back to a short poll of the box interleaved with a non-blocking
   costs **zero tokens -- whether it waits minutes or days**:
 
       while :; do
-        m=$(iac recv "$IAC_ROOM" "$IAC_FROM" 3600) && { printf '%s\n' "$m"; break; }
+        m=$(iac recv "$IAC_ROOM" "$IAC_FROM" 3600) &&
+          { printf '[%s] %s\n' "$IAC_FROM" "$m"; break; }   # tag output with the name
       done
 
   On a timeout (exit 1) bash simply loops and re-blocks -- no request to the model
