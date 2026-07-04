@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>              /* mkdtemp: <unistd.h> on macOS/BSD (glibc also exposes it via <stdlib.h>) */
 
 static int fails = 0;
 #define CHECK(c, m) do { if (c) printf("  ok   %s\n", m); \
