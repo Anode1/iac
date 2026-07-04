@@ -294,12 +294,28 @@ same-host file permissions are the whole trust boundary.
 
     make                              # -> ./iac  (C99, -W -Wall -Wextra, zero deps)
     make ut                           # end-to-end tests: p2p, broadcast, order, claim, who
+    make ut-asan                      # the suite under AddressSanitizer
+    make ut-ubsan                     # the suite under UndefinedBehaviorSanitizer
+    make pedantic                     # stricter -pedantic + prototype/declaration warnings
+    make hooks                        # enable the pre-push hook (runs both sanitizers)
     make install prefix=$HOME/.local  # -> $HOME/.local/bin/iac  (default prefix /usr/local)
     make uninstall prefix=$HOME/.local
 
 There are no downloads: it is one zero-dependency C file, so building it is the
-install. CI builds and runs the suite on Linux and macOS on every push (the badge
-up top).
+install. CI builds and runs the suite on Linux and macOS on every push, plus a
+separate ASan/UBSan lane on both (the badge up top).
+
+## Coding style
+
+iac is written to the same standard as the AIS engine -- the NASA/JPL *Power of
+Ten* and MISRA-C:2012 discipline for safety-critical C: **no heap on any path**
+(peak footprint is a function of the struct sizes, not the data -- a 1 KB room and
+a 1 GB room run in the same memory), **bounded strings only** (`snprintf`, never
+`strcpy`/`sprintf`), **single-exit `goto` cleanup** for any function that holds a
+file or a lock, and a clean build under `-pedantic` plus AddressSanitizer and
+UBSan (`make pedantic ut-asan ut-ubsan`). Rather than restate the rationale, iac
+conforms to the canonical document:
+[AIS `doc/dev/STYLE.md`](https://github.com/Anode1/ais/blob/main/doc/dev/STYLE.md).
 
 ## Platforms
 

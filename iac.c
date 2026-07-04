@@ -315,8 +315,10 @@ static int cmd_ack(const char *room, const char *me, long id)
 static int recover_orphan(const char *room, const char *me)
 {
     char cld[4096], logp[4096], hdr[8192], from[256], to[4096];
-    DIR *d;
+    DIR *d = NULL;
+    FILE *f = NULL;
     struct dirent *e;
+    int rc = 0;
     if (snprintf(cld, sizeof cld, "%s/claims", room) >= (int)sizeof cld) return 0;
     if (p_log(logp, sizeof logp, room)) return 0;
     d = opendir(cld);
@@ -325,7 +327,6 @@ static int recover_orphan(const char *room, const char *me)
         long off, epoch;
         size_t len;
         char *end;
-        FILE *f;
         if (e->d_name[0] == '.') continue;
         off = strtol(e->d_name, &end, 10);
         if (*end != '\0' || off < 0) continue;     /* not an offset-named claim */
@@ -336,17 +337,18 @@ static int recover_orphan(const char *room, const char *me)
             fgets(hdr, sizeof hdr, f) != NULL && strchr(hdr, '\n') != NULL &&
             sscanf(hdr, "%255[^|]|%4095[^|]|%ld|%zu", from, to, &epoch, &len) == 4 &&
             len <= sizeof g_body && fread(g_body, 1, len, f) == len) {
-            fclose(f);
-            closedir(d);
             fprintf(stderr, "iac: from %s to ? at %ld claim %ld\n", from, epoch, off);
             fwrite(g_body, 1, len, stdout);
             fflush(stdout);
-            return 1;
+            rc = 1;
+            goto done;                             /* single exit: close f + dir below */
         }
-        fclose(f);
+        fclose(f); f = NULL;
     }
-    closedir(d);
-    return 0;
+done:
+    if (f != NULL) fclose(f);
+    if (d != NULL) closedir(d);
+    return rc;
 }
 
 static int recv_loop(const char *room, const char *me, int timeout_s, int ino)
@@ -354,7 +356,8 @@ static int recv_loop(const char *room, const char *me, int timeout_s, int ino)
     char logp[4096], curp[4096], hdr[8192], from[256], to[4096];
     long cursor, epoch, frame_end;
     size_t len;
-    int waited_ms = 0, limit_ms = timeout_s * 1000;
+    int waited_ms = 0, limit_ms = timeout_s * 1000, rc = 0;
+    FILE *f = NULL;                                      /* held across the frame scan; closed once at `done` */
 
     if (p_log(logp, sizeof logp, room)) return die("path too long");
     if (p_cur(curp, sizeof curp, room, me)) return die("path too long");
@@ -363,15 +366,14 @@ static int recv_loop(const char *room, const char *me, int timeout_s, int ino)
     for (;;) {
         struct stat st;
         if (stat(logp, &st) == 0 && st.st_size > cursor) {
-            FILE *f = fopen(logp, "r");
-            if (f == NULL) return die("cannot open room log");
-            if (fseek(f, cursor, SEEK_SET) != 0) { fclose(f); return die("seek failed"); }
+            f = fopen(logp, "r");
+            if (f == NULL) { rc = die("cannot open room log"); goto done; }
+            if (fseek(f, cursor, SEEK_SET) != 0) { rc = die("seek failed"); goto done; }
             for (;;) {                                  /* scan frames forward */
                 if (fgets(hdr, sizeof hdr, f) == NULL || strchr(hdr, '\n') == NULL)
                     break;                              /* no whole header yet */
                 if (sscanf(hdr, "%255[^|]|%4095[^|]|%ld|%zu", from, to, &epoch, &len) != 4) {
-                    fclose(f);
-                    return die("corrupt frame");
+                    rc = die("corrupt frame"); goto done;
                 }
                 frame_end = cursor + (long)strlen(hdr) + (long)len + 1;
                 if (st.st_size < frame_end) break;      /* body not fully there */
@@ -380,9 +382,8 @@ static int recv_loop(const char *room, const char *me, int timeout_s, int ino)
                     int mine = (strcmp(from, me) != 0) && (is_claim || to_me(to, me));
                     if (mine && is_claim && !claim_fresh(room, cursor, me)) mine = 0;   /* a peer claimed it */
                     if (mine) {
-                        if (len > sizeof g_body) { fclose(f); return die("message too large"); }
-                        if (fread(g_body, 1, len, f) != len) { fclose(f); return die("short read"); }
-                        fclose(f);
+                        if (len > sizeof g_body) { rc = die("message too large"); goto done; }
+                        if (fread(g_body, 1, len, f) != len) { rc = die("short read"); goto done; }
                         if (is_claim)   /* id lets the worker `iac ack` on completion */
                             fprintf(stderr, "iac: from %s to ? at %ld claim %ld\n", from, epoch, cursor);
                         else
@@ -390,20 +391,23 @@ static int recv_loop(const char *room, const char *me, int timeout_s, int ino)
                         fwrite(g_body, 1, len, stdout);
                         fflush(stdout);
                         write_cursor(curp, frame_end);
-                        return 0;
+                        rc = 0; goto done;
                     }
                 }
                 cursor = frame_end;                     /* not for me (or lost claim): skip on */
-                if (fseek(f, cursor, SEEK_SET) != 0) { fclose(f); return die("seek failed"); }
+                if (fseek(f, cursor, SEEK_SET) != 0) { rc = die("seek failed"); goto done; }
             }
-            fclose(f);
+            fclose(f); f = NULL;
             write_cursor(curp, cursor);                 /* persist scan progress */
         }
-        if (recover_orphan(room, me)) return 0;         /* re-run a dead worker's task */
-        if (waited_ms >= limit_ms) return 1;            /* nothing for me in time */
+        if (recover_orphan(room, me)) { rc = 0; goto done; }   /* re-run a dead worker's task */
+        if (waited_ms >= limit_ms) { rc = 1; goto done; }      /* nothing for me in time */
         idle_wait(ino, logp);                           /* wake on append (inotify) or after the tick */
         waited_ms += IAC_POLL_MS;
     }
+done:
+    if (f != NULL) fclose(f);
+    return rc;
 }
 
 /* recv, wrapped to hold presence + an inotify wake for the whole blocking wait. */
@@ -423,7 +427,7 @@ static int cmd_drain(const char *room, const char *me)
     char logp[4096], curp[4096], hdr[8192], from[256], to[4096];
     long cursor, epoch, frame_end;
     size_t len;
-    int got = 0, pfd;
+    int got = 0, pfd, rc;
     struct stat st;
     FILE *f;
     if (p_log(logp, sizeof logp, room) || p_cur(curp, sizeof curp, room, me)) return die("path too long");
@@ -433,18 +437,18 @@ static int cmd_drain(const char *room, const char *me)
     if (stat(logp, &st) != 0 || st.st_size <= cursor) return 1;   /* empty box */
     f = fopen(logp, "r");
     if (f == NULL) return die("cannot open room log");
-    if (fseek(f, cursor, SEEK_SET) != 0) { fclose(f); return die("seek failed"); }
+    if (fseek(f, cursor, SEEK_SET) != 0) { rc = die("seek failed"); goto done; }
     for (;;) {
         int is_claim, mine;
         if (fgets(hdr, sizeof hdr, f) == NULL || strchr(hdr, '\n') == NULL) break;
-        if (sscanf(hdr, "%255[^|]|%4095[^|]|%ld|%zu", from, to, &epoch, &len) != 4) { fclose(f); return die("corrupt frame"); }
+        if (sscanf(hdr, "%255[^|]|%4095[^|]|%ld|%zu", from, to, &epoch, &len) != 4) { rc = die("corrupt frame"); goto done; }
         frame_end = cursor + (long)strlen(hdr) + (long)len + 1;
         if (st.st_size < frame_end) break;       /* body not fully written yet */
         is_claim = (strcmp(to, "?") == 0);
         mine = (strcmp(from, me) != 0) && (is_claim ? claim_fresh(room, cursor, me) : to_me(to, me));
         if (mine) {
-            if (len > sizeof g_body) { fclose(f); return die("message too large"); }
-            if (fread(g_body, 1, len, f) != len) { fclose(f); return die("short read"); }
+            if (len > sizeof g_body) { rc = die("message too large"); goto done; }
+            if (fread(g_body, 1, len, f) != len) { rc = die("short read"); goto done; }
             if (is_claim) fprintf(stderr, "iac: from %s to ? at %ld claim %ld\n", from, epoch, cursor);
             else fprintf(stderr, "iac: from %s to %s at %ld\n", from, to, epoch);
             fwrite(g_body, 1, len, stdout);
@@ -452,12 +456,14 @@ static int cmd_drain(const char *room, const char *me)
             got++;
         }
         cursor = frame_end;
-        if (fseek(f, cursor, SEEK_SET) != 0) { fclose(f); return die("seek failed"); }
+        if (fseek(f, cursor, SEEK_SET) != 0) { rc = die("seek failed"); goto done; }
     }
-    fclose(f);
     write_cursor(curp, cursor);
     fflush(stdout);
-    return got > 0 ? 0 : 1;
+    rc = got > 0 ? 0 : 1;
+done:
+    fclose(f);
+    return rc;
 }
 
 /* tail -f for my messages: stream each frame for me as it lands (never claims "?"); return after IDLE_S of silence. */

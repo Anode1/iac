@@ -26,9 +26,7 @@ jobs:
       - name: test
         run: make ut
 
-      - name: sanitizers (ASan + UBSan)
-        if: runner.os == 'Linux'
-        run: make ut-asan
+      # ASan/UBSan run in their own workflow (sanitizers.yml, Linux + macOS).
 
       - name: build examples (compile-check; inotify path on Linux, poll on macOS)
         run: make examples
