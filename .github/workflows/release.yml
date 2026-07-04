@@ -1,0 +1,73 @@
+# Build iac for each supported platform and attach the binaries to a GitHub
+# Release, triggered by pushing a version tag. Binaries are reproducible
+# artifacts of the tagged commit, each with a SHA-256 checksum; GitHub attaches
+# the source zip/tar.gz automatically. No binaries live in git.
+#
+# Trigger: any tag matching v* (e.g. v0.2.1). workflow_dispatch runs the build
+# matrix by hand WITHOUT publishing (the publish job is tag-only), so you can
+# validate the build before spending a real tag.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write           # required to create the Release and upload assets
+
+jobs:
+  build:
+    name: build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false      # one platform failing must not cancel the others
+      matrix:
+        include:
+          # -static on Linux so the binary runs on any distro (no glibc match).
+          # macOS cannot fully static-link, so it links the stable system libs.
+          - { os: ubuntu-latest,    name: linux-x86_64, ldflags: -static }
+          - { os: ubuntu-24.04-arm, name: linux-arm64,  ldflags: -static }
+          - { os: macos-latest,     name: macos-arm64,  ldflags: '' }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build + test
+        run: |
+          make ut LDFLAGS='${{ matrix.ldflags }}'   # builds iac, runs the suite
+          ./iac help >/dev/null                     # smoke-test the binary
+
+      - name: stage binary + checksum
+        run: |
+          bin="iac-${{ github.ref_name }}-${{ matrix.name }}"
+          mkdir -p dist
+          cp iac "dist/$bin"
+          ( cd dist && shasum -a 256 "$bin" > "$bin.sha256" )
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iac-${{ matrix.name }}
+          path: dist/*
+
+  publish:
+    name: publish release
+    needs: [build]
+    runs-on: ubuntu-latest
+    # publish only on a tag, and only if every platform built.
+    if: ${{ startsWith(github.ref, 'refs/tags/') && needs.build.result == 'success' }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts        # each artifact lands in artifacts/<name>/
+      - name: assemble release files
+        run: |
+          mkdir -p dist
+          for d in artifacts/*/; do cp -f "$d"* dist/ 2>/dev/null || true; done
+          ls -l dist
+      - name: publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

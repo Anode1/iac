@@ -308,9 +308,11 @@ same-host file permissions are the whole trust boundary.
     make install prefix=$HOME/.local  # -> $HOME/.local/bin/iac  (default prefix /usr/local)
     make uninstall prefix=$HOME/.local
 
-There are no downloads: it is one zero-dependency C file, so building it is the
-install. CI builds and runs the suite on Linux and macOS on every push, plus a
-separate ASan/UBSan lane on both (the badge up top).
+Prebuilt Linux (x86_64/arm64, static) and macOS (arm64) binaries ride each tagged
+[release](../../releases), each with a SHA-256 checksum - or build the one
+zero-dependency C file yourself, since building it is the install. CI builds and
+runs the suite on Linux and macOS on every push, plus a separate ASan/UBSan lane
+on both (the badge up top).
 
 ## Coding style
 
