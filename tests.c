@@ -214,7 +214,11 @@ int main(void)
     snprintf(cmd, sizeof cmd,
              "./iac hold %s dual & hp=$!; sleep 1; "
              "IAC_FROM=hub ./iac send %s dual -- ping; "
-             "timeout 4 ./iac recv %s dual 3 >%s/o 2>/dev/null; printf %%d $? >%s/rc; "
+             /* portable watchdog instead of `timeout` (absent on macOS): recv self-bounds
+              * at its 3s arg, and the sleep-then-kill caps a hypothetical lock deadlock at 4s */
+             "./iac recv %s dual 3 >%s/o 2>/dev/null & rp=$!; "
+             "(sleep 4; kill $rp) 2>/dev/null & wp=$!; "
+             "wait $rp; printf %%d $? >%s/rc; kill $wp 2>/dev/null; "
              "kill $hp 2>/dev/null",
              room, room, room, base, base); if (system(cmd)) {}
     snprintf(path, sizeof path, "%s/o", base); slurp(path, out, sizeof out);
