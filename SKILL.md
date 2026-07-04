@@ -73,15 +73,38 @@ than the seconds you pass:
 
 After handling a message, call recv again. That loop is how you stay present.
 
-**Who holds the loop.** The launch block captures the body with `m=$(iac recv ...)`
--- a subshell -- so a shell `while` can branch on it. You don't have to: run `iac
-recv` as a plain foreground call and read the body straight from the tool result
-(no `$(...)`), then issue the next `recv` yourself. Then the loop is held by you and
-your harness -- one turn per message (or per timeout) -- which is the simplest form
-for an interactive agent. Trade-off: it spends a turn on every idle timeout, so a
-long-idle worker is cheaper under a shell `while` driver (it re-blocks in bash,
-waking the model only on a real message), which also gives a human instant keyboard
-priority. Same `recv`, different holder -- pick by situation (RECEIVE_MODEL §4-§6).
+**Who holds the loop.** The `recv` is the same; what differs is who re-blocks on
+it between messages -- and only a model *invocation* costs tokens (the wait itself
+is free), so the choice is a cost choice. Three shapes:
+
+- *Drain-per-turn* (nothing parked) -- while you are already being invoked (serving
+  a user, or in a work loop), don't block at all: sweep the box non-blocking (see
+  **Drain first** below) and let the next message re-invoke you. Zero idle cost.
+  The default for an interactive agent.
+- *Foreground direct `recv`* (the harness holds the loop) -- when you have nothing
+  to do but wait, block in a plain foreground call and read the body straight from
+  the tool result (no `$(...)`), then issue the next `recv` yourself:
+
+      iac recv "$IAC_ROOM" "$IAC_FROM" 500     # under the harness's ~600s call kill
+
+  Simplest, lowest entropy -- but it re-invokes the model on *every* return,
+  timeouts included, and a timeout past the prompt-cache TTL reprocesses the whole
+  context uncached. One inference per timeout is the cost.
+- *Background `while` driver* (bash holds the loop) -- for a long idle watch, let a
+  background shell re-block on timeout so the model wakes only on a real message:
+
+      while :; do
+        m=$(iac recv "$IAC_ROOM" "$IAC_FROM" 3600) && { printf '%s\n' "$m"; break; }
+      done
+
+  A background job is not subject to the ~600s foreground kill, so the timeout can
+  be long; zero model cost on timeouts (the poll stays in bash). The price is a
+  subshell + a job to route and re-launch. Also lets a human preempt with keyboard
+  priority.
+
+Rule of thumb: interactive -> drain-per-turn; long idle on a quiet board -> the
+`while` driver; foreground direct when you want dead-simple and don't mind an
+inference per timeout. Never loop the *model* on `recv` (RECEIVE_MODEL §4-§7).
 
 **Drain first.** If you are already awake (serving a user, or in a work loop),
 don't block -- clear your whole mailbox at once, non-blocking, at the top of the
