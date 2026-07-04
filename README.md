@@ -2,35 +2,55 @@
 
 [![ci](https://github.com/Anode1/iac/actions/workflows/ci.yml/badge.svg)](https://github.com/Anode1/iac/actions/workflows/ci.yml)
 
-A minimal, efficient dispatcher for agents (or any processes) to message each
-other on a shared filesystem: broadcast, point-to-point, and subset, in named
-rooms. No daemon, no sockets, no third-party service, no accounts -- one small
-C99 binary and plain-text files you can `cat`, `grep`, and version.
+A tiny, dependency-free message board that gives a fleet of agents on one machine
+the one thing they lack: a **wakeup**.
 
-It exists because the transport was never the hard part between agents. Bytes
-move fine across processes; what an LLM agent lacks is an *interrupt inlet* -- a
-way for an inbound message to wake it, the way a kernel wakes a blocked
-`poll()`. `iac` supplies that inlet the only way an agent can have one: a `recv`
-that blocks in C until a message addressed to it lands, so a parked receiver is
-one process asleep and returns once, on delivery -- one wakeup per message, not
-per poll.
+An LLM agent has no *interrupt inlet* -- no socket, no thread, nothing the outside
+world can poke to rouse it between turns; it advances only when its harness
+re-invokes it. `iac` is a `recv` that blocks in C until a message addressed to it
+lands, so its *return* is that wakeup -- **one wakeup per message**, delivered to a
+participant that otherwise could not be reached. Everything under it is the boring,
+proven part -- an append-only log, a per-reader cursor, `flock` presence -- in
+named rooms of plain-text files you can `cat`, `grep`, and version. No daemon, no
+sockets, no accounts; one small C99 binary.
+
+## When it fits
+
+Reach for `iac` when several agents (or subagents) share one machine and have to
+coordinate -- the setup it was built for:
+
+- **Wake an idle agent.** A parked `recv` returns the instant a message for it
+  lands, and that return re-invokes the agent.
+- **Fan out and gather.** `send *` a task to the whole fleet and collect replies;
+  broadcast is a single append, not N sends, in one total order everyone shares.
+- **Dispatch to whoever is free.** `send ?` hands a job to exactly one idle
+  worker; if that worker dies mid-job, the task re-runs after its TTL -- a
+  no-coordinator work queue.
+- **Keep a human in control.** A person is just another name on the board; a
+  keyboard-priority driver lets them interrupt and redirect a running fleet.
+
+It fits when the fleet shares a host (the common case), at coordination latency,
+among mutually-trusting agents -- not across machines, not for a chatty inner loop.
+Why files-and-a-`recv` beats a cloud queue, MCP server, or bot is in
+[Why not a message queue…](#why-not-a-message-queue-an-mcp-server-or-a-bot).
 
 ## Getting started
 
 ### Supported systems
 
 `iac` is a POSIX program. It runs natively on **Linux** (the primary target),
-**macOS**, and the **BSDs**; prebuilt static-Linux and macOS binaries ride each
-[release](../../releases). On **Windows** there is no native build -- run it under
+**macOS**, and the **BSDs**. On **Windows** there is no native build -- run it under
 **WSL** (which is Linux, so it works unchanged) or build under Cygwin/MSYS2 (see
 [Platforms](#platforms) for the why). Two requirements: every participant must
-share one filesystem (the same host, or a shared mount), and to build from source
-you need only a C99 compiler and `make` -- zero dependencies.
+share one filesystem (the same host, or a shared mount), and to build you need
+only a C99 compiler and `make` -- zero dependencies, so there are no binaries to
+download.
 
 ### How to run
 
-Install a released binary, or build and install from source:
+Build and install the one zero-dependency C file:
 
+    git clone https://github.com/Anode1/iac && cd iac
     make install prefix=$HOME/.local     # puts `iac` on $PATH, no root
 
 Then, in two shells:
@@ -47,9 +67,8 @@ is a one-screen reference; [Use](#use) documents every verb.
 
 ### What to expect
 
-- **Delivery** -- `recv` blocks in C and returns *once*, on the first message
-  addressed to it: one wakeup per message, a single total order, broadcast in one
-  write. That returning process is the interrupt an LLM agent can actually use.
+- **Delivery** -- `recv` returns *once*, on the first message addressed to you: a
+  single total order, and broadcast is one write regardless of audience.
 - **Latency** -- process start plus the wake: on Linux a parked `recv` wakes on
   an inotify append event (sub-millisecond); elsewhere it falls back to a 100 ms
   poll. Right for coordination; wrong for a chatty inner loop (see
@@ -70,20 +89,14 @@ queue, an MCP server, a shared vector store, or a chat account per agent
 (Slack/Discord bots). That all assumes "agents talk" means a network service,
 with the infrastructure, credentials, and latency to match.
 
-But an LLM agent has no interrupt inlet (above): it cannot be woken by a packet,
-only re-invoked by its harness. So the primitive it actually needs is not a
-socket but a blocking `recv` whose *return* is the wakeup -- the one signal a
-parent already gets ("a background child finished"). Once receive is a blocking
-poll, the whole problem collapses to files on a shared disk. For a fleet of
-subagents on one machine (the common case), that is not a compromise, it is the
-entire cost: no server to run, no accounts to provision, no network to secure,
-microsecond process start.
-
-That makes `iac` a point in the design space almost nobody targets -- a
-dependency-free, single-binary, same-host dispatcher -- precisely because the
-network-service assumption hides it. The parts are old and boring on purpose
-(append-only log, per-reader cursor, flock presence); the uncommon move is
-aiming them at agents that can only be woken by a returning child process.
+But the wakeup an agent needs (above) is not a socket -- it is a blocking `recv`
+whose *return* is the one signal a parent already gets, "a background child
+finished." Once receive is a blocking poll, the whole problem collapses to files
+on a shared disk: for a fleet on one machine (the common case) that is not a
+compromise but the entire cost -- no server, no accounts, no network to secure,
+microsecond start. A heavy service earns its keep only when the fleet must span
+machines; `iac` is the point almost nobody targets, because the network-service
+assumption hides it.
 
 ## Model
 
@@ -202,34 +215,25 @@ each call, so you can still tell recently-active from long-gone:
 
 Length-framed, not line-based, so a body may contain any bytes.
 
-## The agent pattern (why the blocking recv matters)
+## The receive pattern (how an agent lives on the board)
 
-An agent cannot be interrupted; it only advances when its harness re-invokes it.
-The one wakeup a parent gets is "a background child finished." So `recv` is the
-`recv()` an agent can actually use: park a background `iac recv` -- a plain shell
-job, **not** a spawned LLM subagent -- on the room, and its exit re-invokes the
-agent. That return IS the inbound-message interrupt.
+The wakeup only pays off if you spend it right. Park a **background** `iac recv`
+-- a plain shell job, **not** a spawned LLM subagent -- and its exit re-invokes
+the agent holding the message:
 
     # a BACKGROUND shell job (run_in_background), not a spawned model: it blocks
     # up to 5 min for my next message, and its exit re-invokes me holding it.
     iac recv /tmp/room me 300 &
 
-Receiving is I/O, not cognition -- keep the wait in bash. Never park a whole model
-context on `recv` to block on a C call; that burns a turn's worth of context to
-sleep. And when you are already awake, don't block at all: `iac drain` (or `iac
-recv me 0`) clears your box inline, in the turn you already have.
+Two rules keep the cost near zero: receiving is I/O, not cognition, so keep the
+wait in bash -- never park a whole model context on `recv` to block on a C call;
+and when you are already awake, don't block at all -- `iac drain` (or `iac recv me
+0`) clears your box inline, in the turn you already have.
 
-Any number of agents each keep a background `iac recv` parked on the room; anyone
-drops a message to one agent, a subset, or all at once. That is a symmetric,
-event-ish, multi-party channel built entirely out of polling -- the polling just
-lives in C where it is cheap, instead of in the model where it would burn a turn
-per check.
-
-Two deeper docs: [`doc/dev/RECEIVE_MODEL.md`](doc/dev/RECEIVE_MODEL.md) explains
-the receive model in `poll`/`epoll` terms (why blocking `recv`, the receive-loop,
-keyboard-priority control), and [`doc/ORCHESTRATION.md`](doc/ORCHESTRATION.md) is
-the operator's guide to running a fleet -- the verbs as a control plane and when
-to `drain` vs park on `recv`.
+The full model, in `poll`/`epoll` terms (the receive-loop, keyboard-priority
+control), is in [`doc/dev/RECEIVE_MODEL.md`](doc/dev/RECEIVE_MODEL.md); the guide to
+running a fleet -- the verbs as a control plane, when to `drain` vs park -- is
+[`doc/ORCHESTRATION.md`](doc/ORCHESTRATION.md).
 
 ## Limits (honest)
 
@@ -289,9 +293,9 @@ same-host file permissions are the whole trust boundary.
     make install prefix=$HOME/.local  # -> $HOME/.local/bin/iac  (default prefix /usr/local)
     make uninstall prefix=$HOME/.local
 
-Prebuilt Linux and macOS binaries ride each tagged release (see the Releases
-page) -- CI builds and tests both on every push; a `v*` tag also attaches the
-binaries. The Linux one is static, so it runs on any Linux without a glibc match.
+There are no downloads: it is one zero-dependency C file, so building it is the
+install. CI builds and runs the suite on Linux and macOS on every push (the badge
+up top).
 
 ## Platforms
 
@@ -323,15 +327,25 @@ its **Launch a worker (copy-paste)** block is a ready-to-paste prompt that bring
 The shape is older than the LLMs it now serves, and so is the taste behind it.
 The author has run Linux since 1994 (Slackware 2, kernel 1.x) and has always
 preferred plain text files and small Unix tools to heavier machinery. He first
-simulated asynchronous agent communication in Ada at university in 1995. Having
-specialized in AI, he tried to build software agents in Java in early 2001, and
-around the same time wrote `ljms`, a peer-to-peer message broker with broadcast
-and multicast -- but no one was hiring AI specialists in his proximity then, and
-agents stayed a private pursuit. Twenty-five years later the participants finally
-showed up. `iac` is those same instincts -- a shared broker; addressed,
-broadcast, and claim-one messages; presence; every bit of it a greppable file --
+simulated asynchronous agent communication in Ada at university in 1995, using
+its elegant rendezvous mechanism. Having specialized in AI -- the era when agents
+were built on frames and rule-based systems -- he had programmed a few such
+systems at work, on custom DSLs and in C. He tried to build software agents in
+Java in early 2001 -- including a backprop neural network with
+hyperparameterization -- and around the same time wrote `ljms`, a peer-to-peer
+message broker with broadcast and multicast. But his pitch was not successful; it
+was too early: no one was hiring AI specialists in his proximity then, and agents
+stayed a private pursuit while he spent the next twenty
+years building Java servers, and applications in both C and Java. Twenty-five
+years later the participants finally showed up. `iac` is those same instincts -- a
+shared broker; addressed, broadcast, and claim-one messages; presence; every bit
+of it a greppable file --
 distilled to a single dependency-free C binary and pointed at the participant
 that at last exists: an agent, which can only be woken by a returning process.
+
+<img src="screenshots/bigus-bigus-1998-constructing-intelligent-agents-with-java.jpg" alt="Joseph P. Bigus and Jennifer Bigus, Constructing Intelligent Agents with Java (Wiley, 1998)" width="240">
+
+*Joseph P. Bigus & Jennifer Bigus, Constructing Intelligent Agents with Java (Wiley, 1998) -- a period marker for the Java-agents pursuit above.*
 
 ## License
 
