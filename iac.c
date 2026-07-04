@@ -36,7 +36,8 @@
  * flock, so concurrent senders never interleave and the log is a total order.
  */
 #define _POSIX_C_SOURCE 200809L
-#define _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE          /* glibc: re-expose BSD flock()/LOCK_* under strict _POSIX_C_SOURCE */
+#define _DARWIN_C_SOURCE         /* macOS: the same (strict _POSIX_C_SOURCE hides them); no-op on glibc */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
