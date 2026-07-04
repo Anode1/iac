@@ -40,8 +40,8 @@ Why files-and-a-`recv` beats a cloud queue, MCP server, or bot is in
 
 ### Supported systems
 
-`iac` is a POSIX program. It runs natively on **Linux** (the primary target),
-**macOS**, and the **BSDs**. On **Windows** there is no native build -- run it under
+`iac` is a POSIX program. It runs natively on **Linux** (the primary target) and
+**macOS** (both CI-tested). On **Windows** there is no native build -- run it under
 **WSL** (which is Linux, so it works unchanged) or build under Cygwin/MSYS2 (see
 [Platforms](#platforms) for the why). Two requirements: every participant must
 share one filesystem (the same host, or a shared mount), and to build you need
@@ -327,7 +327,7 @@ conforms to the canonical document:
 The reason iac is Unix-native (and not native to Windows) is its primitives. The
 core one is `flock` -- it orders appends, backs presence, guards claims, and locks
 the log during `compact` -- alongside `writev`, `pread`/`pwrite`, and `dirent`.
-All are POSIX and present on Linux, macOS, and the BSDs; none is native to
+All are POSIX and present on Linux and macOS; none is native to
 Windows. **On Windows, run it under WSL** (it is Linux, so it works unchanged);
 Cygwin/MSYS2 also build it via their POSIX layer. A native port would mean
 swapping `flock` for `LockFileEx` and friends behind `#ifdef`s -- deliberately
