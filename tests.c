@@ -279,6 +279,18 @@ int main(void)
     snprintf(path, sizeof path, "%s/r", base);
     CHECK(strcmp(slurp(path, out, sizeof out), "1") == 0, "drain: exit 1 on an empty box");
 
+    /* 22. who reports a LIVE holder's pid, not a stale stored one: join writes a
+     *     pid that dies, then a recv-only park must refresh it (kill -0 the shown pid) */
+    snprintf(room, sizeof room, "%s/r_pidlive", base);
+    snprintf(cmd, sizeof cmd,
+             "./iac join %s x >/dev/null 2>&1; "                 /* roster pid = the join proc, which exits */
+             "./iac recv %s x 3 >/dev/null 2>&1 & sleep 1; "     /* a recv-only park holds presence + refreshes pid */
+             "p=$(./iac who %s | awk '/^x /{print $4}'); "
+             "kill -0 \"$p\" 2>/dev/null && printf alive >%s/o || printf dead >%s/o; wait",
+             room, room, room, base, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/o", base);
+    CHECK(strcmp(slurp(path, out, sizeof out), "alive") == 0, "who: an online member's pid is the live flock holder, not stale");
+
     snprintf(cmd, sizeof cmd, "rm -rf %s", base); if (system(cmd)) {}
     printf("%s\n", fails ? "FAILED" : "all passed");
     return fails ? 1 : 0;

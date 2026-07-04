@@ -188,7 +188,9 @@ static int presence_enter(const char *room, const char *me)
     if (fd < 0) return -1;
     if (flock(fd, LOCK_SH) != 0) { close(fd); return -1; }
     roster_read(rosp, &join, &pid, &seen);
-    roster_put(rosp, join > 0 ? join : now, pid > 0 ? pid : (long)getpid(), now);
+    /* refresh pid to THIS live holder every enter: keeping the stored pid let a
+     * dead beacon's pid linger while a recv-only agent held the flock (stale who). */
+    roster_put(rosp, join > 0 ? join : now, (long)getpid(), now);
     return fd;
 }
 
