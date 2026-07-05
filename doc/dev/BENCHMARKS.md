@@ -65,5 +65,5 @@ from context to tokens, no process between calls), so the full-forward-pass "no
 cheap peek" and the `T/p` activation count hold for any model. Prompt caching is
 now offered across providers but discounts the bill only partially and never
 removes the activations; Anthropic's ~0.1x cache read is among the most generous,
-so the ~600k warm figure is a favorable case — where a provider discounts less
+so the $1.99 warm figure is a favorable case — where a provider discounts less
 (some ~0.5x), polling costs more, not less.
