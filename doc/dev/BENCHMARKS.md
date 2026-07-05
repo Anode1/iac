@@ -34,30 +34,31 @@ This is the transport's whole contribution. An agent's own turn is **seconds**
 (a model inference), so the round-trip a human perceives is bounded by thinking,
 not by iac — by a factor of thousands. The transport is never the bottleneck.
 
-## Tokens — modeled
+## Tokens — measured
 
-Not a metered bill; a worked example of the cost equation in RECEIVE_MODEL.md.
-One agent idle for `T = 1 h`, polling every `p = 30 s`, context `C ≈ 50,000`
-tokens, so `T/p = 120` activations:
+Measured on the Anthropic API (claude-sonnet-5), which returns exact token usage
+per call. One agent, context `C = 49,836` tokens, polling every `p = 30 s` for one
+hour (`T/p = 120` activations). Reproduce with `experiment/tokenbill.py`.
 
-| Approach | Model wake-ups | Tokens processed | Tokens billed |
+| Approach | Model wake-ups | Tokens processed | Cost (billed) |
 |----------|---------------:|-----------------:|--------------:|
-| Model polls itself (warm cache) | 120 | ~6,000,000 | ~600,000 |
-| Model polls itself (cold cache) | 120 | ~6,000,000 | ~6,000,000 |
-| `iac` wakeup (`recv` blocks in C) | **0** | **0** | **0** |
+| Model polls itself (warm cache) | 120 | 5,980,320 | $1.99 |
+| Model polls itself (cold cache) | 120 | 5,980,320 | $17.95 |
+| `iac` wakeup (`recv` blocks in C) | **0** | **0** | **$0.00** |
 
 Two numbers, kept separate on purpose. **Processed** is what the model reads: a
 check is a full forward pass over the whole context — a language model has no
 cheaper way to look — so 120 checks read ~6M tokens regardless of caching.
-**Billed** is what you pay: a warm prompt cache (each poll inside the provider's
-few-minute cache lifetime) is charged a fraction of the read (~0.1x on Anthropic,
-so ~600k); a cold cache pays the full ~6M. Caching lowers the price, not the work,
-and never touches the activation count. Under iac the poll runs in C — an idle
-wait reads and costs nothing — and the model wakes **once, on a real message**.
+**Billed** is what you pay: warm (each poll inside the cache lifetime) cost $1.99
+for the hour, billed almost entirely as cache reads (5,926,081 of the tokens);
+cold — the same tokens with caching off — bills $17.95 (derived from the measured
+processed tokens at full input rate). Caching lowers the price, not the work, and
+never touches the activation count. Under iac the poll runs in C — an idle wait
+reads and costs nothing — and the model wakes **once, on a real message**.
 
 Scaled to five agents parked overnight (8 h): the self-poll **processes ~240M
-tokens** (of which ~24M are billed with a warm cache, the full amount cold),
-against **zero** for the board. Activations under iac scale with *work*, not *time*.
+tokens** and bills **~$80 warm** (~$720 cold), against **$0** for the board.
+Activations under iac scale with *work*, not *time*.
 
 **Not vendor-specific.** Every current LLM serves requests statelessly (a function
 from context to tokens, no process between calls), so the full-forward-pass "no
