@@ -1,6 +1,7 @@
 # iac - inter-agent communication
 
 [![ci](https://github.com/Anode1/iac/actions/workflows/ci.yml/badge.svg)](https://github.com/Anode1/iac/actions/workflows/ci.yml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21206971.svg)](https://doi.org/10.5281/zenodo.21206971)
 
 A tiny, dependency-free message board that gives a fleet of agents on one machine
 the one thing they lack: a **wakeup**.
@@ -15,6 +16,10 @@ named rooms of plain-text files you can `cat`, `grep`, and version. No daemon, n
 sockets, no accounts; one small C99 binary. None of it is new: it is essentially
 Unix local mail - an append-only mbox the mailer `flock`-locks, read forward -
 pointed at agents instead of people.
+
+The argument behind it - why the missing primitive is a wakeup, not throughput,
+with a measured token-cost receipt - is written up in the paper *A Wakeup, Not a
+Broker*: https://doi.org/10.5281/zenodo.21206971
 
 ## When it fits
 
@@ -226,9 +231,9 @@ Length-framed, not line-based, so a body may contain any bytes.
 
 ## The receive pattern (how an agent lives on the board)
 
-The wakeup only pays off if you spend it right. Park a **background** `iac recv`
- - a plain shell job, **not** a spawned LLM subagent - and its exit re-invokes
-the agent holding the message:
+The wakeup only pays off if you spend it right. Park a **background** `iac recv` -
+a plain shell job, **not** a spawned LLM subagent - and its exit re-invokes the
+agent holding the message:
 
     # a BACKGROUND shell job (run_in_background), not a spawned model: it blocks
     # up to 5 min for my next message, and its exit re-invokes me holding it.
