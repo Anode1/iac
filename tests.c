@@ -298,6 +298,51 @@ int main(void)
     snprintf(path, sizeof path, "%s/o", base);
     CHECK(strcmp(slurp(path, out, sizeof out), "alive") == 0, "who: an online member's pid is the live flock holder, not stale");
 
+    /* 23-25. length caps on names and recipient specs (IAC_NAME_MAX 64,
+     *     IAC_SPEC_MAX 1024): a validated name/spec must always fit the frame
+     *     header, so anything longer is rejected up front rather than silently
+     *     truncated at recv's %255[^|] / %4095[^|]. */
+    {
+        char n64[65], n65[66], big[2048];
+        int k; size_t bl = 0;
+        memset(n64, 'a', 64); n64[64] = '\0';
+        memset(n65, 'a', 65); n65[65] = '\0';
+
+        /* 23. recv <me>: a 64-char name is valid (recv just times out -> exit 1);
+         *     a 65-char name is rejected by the usage guard -> exit 2. */
+        snprintf(room, sizeof room, "%s/r_recvname", base);
+        snprintf(cmd, sizeof cmd, "./iac recv %s %s 1 >/dev/null 2>&1; printf %%d $? >%s/r", room, n64, base); if (system(cmd)) {}
+        snprintf(path, sizeof path, "%s/r", base);
+        CHECK(strcmp(slurp(path, out, sizeof out), "1") == 0, "name cap: a 64-char me is accepted (recv times out)");
+        snprintf(cmd, sizeof cmd, "./iac recv %s %s 1 >/dev/null 2>&1; printf %%d $? >%s/r", room, n65, base); if (system(cmd)) {}
+        CHECK(strcmp(slurp(path, out, sizeof out), "2") == 0, "name cap: a 65-char me is rejected (exit 2)");
+
+        /* 24. IAC_FROM: an over-long sender name falls back to "anon"; a 64-char
+         *     sender is kept verbatim in the frame header. */
+        snprintf(room, sizeof room, "%s/r_fromname", base);
+        snprintf(cmd, sizeof cmd, "IAC_FROM=%s ./iac send %s dest -- hi; ./iac log %s >%s/o 2>/dev/null", n65, room, room, base); if (system(cmd)) {}
+        snprintf(path, sizeof path, "%s/o", base); slurp(path, out, sizeof out);
+        CHECK(strncmp(out, "anon|", 5) == 0, "name cap: a 65-char IAC_FROM falls back to sender anon");
+        snprintf(room, sizeof room, "%s/r_fromok", base);
+        snprintf(cmd, sizeof cmd, "IAC_FROM=%s ./iac send %s dest -- hi; ./iac log %s >%s/o 2>/dev/null", n64, room, room, base); if (system(cmd)) {}
+        slurp(path, out, sizeof out);
+        CHECK(strncmp(out, n64, 64) == 0 && out[64] == '|', "name cap: a 64-char IAC_FROM is kept verbatim");
+
+        /* 25. recipient spec: a 64-char name is a valid recipient (exit 0); a 65-char
+         *     segment is rejected; and a comma-list over 1024 chars total is rejected
+         *     even though each segment is valid (16 x 64 + 15 commas = 1039). */
+        snprintf(room, sizeof room, "%s/r_spec", base);
+        snprintf(path, sizeof path, "%s/r", base);
+        snprintf(cmd, sizeof cmd, "./iac send %s %s -- hi >/dev/null 2>&1; printf %%d $? >%s/r", room, n64, base); if (system(cmd)) {}
+        CHECK(strcmp(slurp(path, out, sizeof out), "0") == 0, "spec cap: a 64-char recipient name is accepted");
+        snprintf(cmd, sizeof cmd, "./iac send %s %s -- hi >/dev/null 2>&1; printf %%d $? >%s/r", room, n65, base); if (system(cmd)) {}
+        CHECK(strcmp(slurp(path, out, sizeof out), "2") == 0, "spec cap: a 65-char recipient segment is rejected");
+        for (k = 0; k < 16; k++) { if (k) big[bl++] = ','; memcpy(big + bl, n64, 64); bl += 64; }
+        big[bl] = '\0';                                   /* 1039 chars, > IAC_SPEC_MAX */
+        snprintf(cmd, sizeof cmd, "./iac send %s %s -- hi >/dev/null 2>&1; printf %%d $? >%s/r", room, big, base); if (system(cmd)) {}
+        CHECK(strcmp(slurp(path, out, sizeof out), "2") == 0, "spec cap: a comma-list over 1024 chars total is rejected");
+    }
+
     snprintf(cmd, sizeof cmd, "rm -rf %s", base); if (system(cmd)) {}
     printf("%s\n", fails ? "FAILED" : "all passed");
     return fails ? 1 : 0;
