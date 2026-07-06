@@ -1,7 +1,7 @@
 # iac -- roadmap
 
 Genuine future work only; what already ships is in the [README](../README.md).
-Small in keeping with the tool -- each item is a bounded change to the one C file.
+Small in keeping with the tool -- each item is a bounded change to the C engine.
 
 ## Bound the log's growth (rotation / feedback)
 

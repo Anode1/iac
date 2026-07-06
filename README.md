@@ -57,7 +57,7 @@ download.
 
 ### How to run
 
-Build and install the one zero-dependency C file:
+Build and install the zero-dependency C sources (one binary, no deps):
 
     git clone https://github.com/Anode1/iac && cd iac
     make install prefix=$HOME/.local     # puts `iac` on $PATH, no root
@@ -314,17 +314,17 @@ same-host file permissions are the whole trust boundary.
     make uninstall prefix=$HOME/.local
 
 Prebuilt Linux (x86_64/arm64, static) and macOS (arm64) binaries ride each tagged
-[release](../../releases), each with a SHA-256 checksum - or build the one
-zero-dependency C file yourself, since building it is the install. CI builds and
+[release](../../releases), each with a SHA-256 checksum - or build the
+zero-dependency C sources yourself, since building it is the install. CI builds and
 runs the suite on Linux and macOS on every push, plus a separate ASan/UBSan lane
 on both (the badge up top).
 
 ## Coding style
 
 iac is written to the same standard as the AIS engine - the NASA/JPL *Power of
-Ten* and MISRA-C:2012 discipline for safety-critical C: **no heap on any path**
-(peak footprint is a function of the struct sizes, not the data - a 1 KB room and
-a 1 GB room run in the same memory), **bounded strings only** (`snprintf`, never
+Ten* and MISRA-C:2012 discipline for safety-critical C: **no heap in iac's own
+code on any path** (peak footprint is a function of the struct sizes, not the
+data - a 1 KB room and a 1 GB room run in the same memory), **bounded strings only** (`snprintf`, never
 `strcpy`/`sprintf`), **single-exit `goto` cleanup** for any function that holds a
 file or a lock, and a clean build under `-pedantic` plus AddressSanitizer and
 UBSan (`make pedantic ut-asan ut-ubsan`). Rather than restate the rationale, iac

@@ -1,13 +1,29 @@
+# iac -- inter-agent communication. ISC License; see LICENSE.
+#
+# The engine is one binary built from every *.c except the test driver; drop in
+# a new module (say ping.c/ping.h) and it is picked up with no edit here. The
+# feature-test macros live in CPPFLAGS so each .c stays clean: flock/LOCK_* are
+# BSD (need _DEFAULT_SOURCE on glibc), inotify needs _DEFAULT_SOURCE, and macOS
+# hides both under strict _POSIX_C_SOURCE unless _DARWIN_C_SOURCE is set.
 CC     = cc
 CFLAGS = -std=c99 -O2 -W -Wall -Wextra
+CPPFLAGS = -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -D_DARWIN_C_SOURCE
 BIN    = iac
 # install location; override e.g. `make install prefix=$HOME/.local`
 prefix = /usr/local
 
-$(BIN): iac.c
-	$(CC) $(CFLAGS) -o $@ iac.c $(LDFLAGS)
+# engine = all top-level *.c except the end-to-end test driver (tests.c)
+SRC  = $(filter-out tests.c, $(wildcard *.c))
+OBJS = $(SRC:.c=.o)
 
-# End-to-end tests drive the built binary, so build it first.
+$(BIN): $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) -MMD -c $< -o $@
+
+# End-to-end tests drive the built binary, so build it first. tests.c carries its
+# own feature-test #defines, so it compiles without CPPFLAGS.
 ut: $(BIN) tests
 	./tests
 
@@ -33,23 +49,23 @@ ASAN  = -fsanitize=address -fno-omit-frame-pointer -g
 UBSAN = -fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g
 
 ut-asan:
-	$(CC) $(CFLAGS) $(ASAN) -o $(BIN) iac.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(ASAN) -o $(BIN) $(SRC)
 	$(CC) $(CFLAGS) $(ASAN) -o tests tests.c
 	./tests
 	$(MAKE) --no-print-directory clean >/dev/null && $(MAKE) --no-print-directory >/dev/null
 
 ut-ubsan:
-	$(CC) $(CFLAGS) $(UBSAN) -o $(BIN) iac.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(UBSAN) -o $(BIN) $(SRC)
 	$(CC) $(CFLAGS) $(UBSAN) -o tests tests.c
 	./tests
 	$(MAKE) --no-print-directory clean >/dev/null && $(MAKE) --no-print-directory >/dev/null
 
-# Stricter warning gate (matches AIS `make pedantic`): the source must compile
+# Stricter warning gate (matches AIS `make pedantic`): every source must compile
 # clean under -pedantic and the prototype/declaration warnings, not just -Wall
 # -Wextra. Compile-only -- a warning here is a defect.
 PEDFLAGS = -std=c99 -pedantic -Wall -Wextra -Wundef -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations
 pedantic:
-	$(CC) $(PEDFLAGS) -c -o /dev/null iac.c
+	for f in $(SRC); do $(CC) $(PEDFLAGS) $(CPPFLAGS) -c $$f -o /dev/null || exit 1; done
 	$(CC) $(PEDFLAGS) -c -o /dev/null tests.c
 
 # Enable the git pre-push hook so the sanitizers run before every push -- a
@@ -67,6 +83,8 @@ uninstall:
 	rm -f $(DESTDIR)$(prefix)/bin/$(BIN)
 
 clean:
-	rm -f $(BIN) tests examples/kbd_driver
+	rm -f $(BIN) tests examples/kbd_driver $(OBJS) $(OBJS:.o=.d)
+
+-include $(OBJS:.o=.d)
 
 .PHONY: ut ut-asan ut-ubsan pedantic hooks examples install uninstall clean
