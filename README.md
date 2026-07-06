@@ -1,7 +1,7 @@
 # iac - inter-agent communication
 
 [![ci](https://github.com/Anode1/iac/actions/workflows/ci.yml/badge.svg)](https://github.com/Anode1/iac/actions/workflows/ci.yml)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21212484.svg)](https://doi.org/10.5281/zenodo.21212484)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21206970.svg)](https://doi.org/10.5281/zenodo.21206970)
 
 A tiny, dependency-free message board that gives a fleet of agents on one machine
 the one thing they lack: a **wakeup**.
@@ -19,7 +19,7 @@ pointed at agents instead of people.
 
 The argument behind it - why the missing primitive is a wakeup, not throughput,
 with a measured token-cost receipt - is written up in the paper *A Wakeup, Not a
-Broker*: https://doi.org/10.5281/zenodo.21212484
+Broker*: https://doi.org/10.5281/zenodo.21206970
 
 ## When it fits
 
