@@ -471,6 +471,26 @@ that at last exists: an agent, which can only be woken by a returning process.
 
 *Joseph P. Bigus & Jennifer Bigus, Constructing Intelligent Agents with Java (Wiley, 1998) - a period marker for the Java-agents pursuit above.*
 
+## Citation
+
+The design argument, the measured token-cost receipt, and the prior-art lineage
+are written up as a citable preprint:
+
+> V. Gavrilov, *A Wakeup, Not a Broker: The Minimal Transport for Coordinating
+> Stateless LLM Agents*. Zenodo, 2026. <https://doi.org/10.5281/zenodo.21206970>
+
+```bibtex
+@techreport{gavrilov2026wakeup,
+  author = {Gavrilov, Vasili},
+  title  = {A Wakeup, Not a Broker: The Minimal Transport for Coordinating Stateless LLM Agents},
+  year   = {2026},
+  doi    = {10.5281/zenodo.21206970},
+  url    = {https://doi.org/10.5281/zenodo.21206970}
+}
+```
+
+The DOI is the concept DOI - it always resolves to the latest version.
+
 ## License
 
 ISC (see LICENSE) - do anything, keep the notice, no warranty.
