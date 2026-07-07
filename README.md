@@ -193,6 +193,10 @@ WHAT WE DO          (the wakeup: no server, a file, a sleeping waiter)
    sleeping agent? : reached -- the message's ARRIVAL is the wakeup
 ```
 
+Concretely: ten agents polling their own inboxes overnight burn roughly
+**$160-$1,400** just watching empty mailboxes; on `iac` they wait for **$0**. The
+measured receipt is in the [paper](https://doi.org/10.5281/zenodo.21206970).
+
 ## Model
 
     a ROOM      is a directory
