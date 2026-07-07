@@ -17,6 +17,37 @@ sockets, no accounts; one small C99 binary. None of it is new: it is essentially
 Unix local mail - an append-only mbox the mailer `flock`-locks, read forward -
 pointed at agents instead of people.
 
+This isn't an AI idea; it's an `epoll` idea. Anyone who has written a network
+server knows the cheapest thing in computing is a process asleep in `epoll_wait` -
+off the CPU, woken by the kernel exactly when data lands. So an agent *polling* its
+own inbox, paying a full model inference per check, is the part that looks wrong:
+don't poll from the expensive thing. Push the wait into a cheap child process that
+just blocks, and let its return be the wakeup. `iac` is that one systems instinct,
+made small.
+
+```
+HOW epoll WORKS  (any server)         HOW iac MAPS IT  (an agent)
+-----------------------------         ----------------------------
+  epoll_wait(epfd)                      iac recv room me
+      |                                     |  (a cheap C child is forked)
+  process OFF the CPU,                  the child OFF the CPU,
+  parked in a kernel wait queue        parked on an inotify watch of the log
+  ~~ asleep, 0% CPU ~~                 ~~ asleep, 0% CPU, 0 tokens ~~
+      ^                                     ^
+      |  a packet lands on a socket fd      |  a peer appends to <room>/log
+  kernel moves it to the run queue     kernel wakes the recv child
+      |                                     |
+  epoll_wait RETURNS                   recv RETURNS (exit 0)
+      -> the program handles it            -> the harness re-invokes the agent:
+                                               ONE turn, holding the message
+
+  epoll_wait(epfd)           <->   iac recv room me     (the blocking wait)
+  a socket fd becomes ready  <->   <room>/log grows     (an inotify event)
+  kernel wakes the process   <->   kernel wakes the recv child
+  return -> handle the event <->   return -> the agent's wakeup (one turn)
+  the waiter IS the process   <->   the waiter is a C child, NOT the model
+```
+
 The argument behind it - why the missing primitive is a wakeup, not throughput,
 with a measured token-cost receipt - is written up in the paper *A Wakeup, Not a
 Broker*: https://doi.org/10.5281/zenodo.21206970
@@ -106,6 +137,61 @@ compromise but the entire cost - no server, no accounts, no network to secure,
 millisecond start. A heavy service earns its keep only when the fleet must span
 machines; `iac` is the point almost nobody targets, because the network-service
 assumption hides it.
+
+The difference in one picture - the usual scheme keeps an always-on server that
+*pushes* to a live agent; `iac` replaces the server with a file, and the message's
+*arrival* wakes an agent that was not running at all:
+
+```
+THE USUAL SCHEME    (a Slack bot / a broker / an agent gateway)
+
+   Slack / a user / a peer
+        |
+        |  push  (webhook HTTP, or a held WebSocket)
+        v
+   +===========================+
+   |  ALWAYS-ON SERVER         |  runs 24/7; holds a socket or a
+   |  (daemon / gateway / bot) |  public URL; routes + buffers
+   +===========================+
+        |
+        |  push, over a connection the agent HOLDS OPEN
+        v
+   +---------------------------+
+   |  YOUR AGENT               |  a LIVE process, connected and
+   |  (must stay running)      |  waiting; never switched off
+   +---------------------------+
+
+   idle cost : server AND agent burn resources 24/7
+   sleeping agent? : cannot be reached -- it must already be connected
+
+
+WHAT WE DO          (the wakeup: no server, a file, a sleeping waiter)
+
+   a peer   (or a human, via a thin bridge)
+        |
+        |  iac send room me "x"   =  append ONE line
+        v
+   +===========================+
+   |  A SHARED TEXT FILE        |  <room>/log on disk. no service,
+   |  <room>/log                |  no daemon, nothing running.
+   +===========================+
+        |
+        |  the file changed -> the kernel wakes...
+        v
+   +---------------------------+
+   |  iac recv : ASLEEP        |  a throwaway C child, ~$0,
+   |  (the cheap waiter)       |  parked until the line lands
+   +------------+--------------+
+                |  it returns, and THAT return starts the turn
+                v
+   +---------------------------+
+   |  YOUR AGENT : ONE TURN    |  spawned by the wakeup; reads "x",
+   |  then CEASES to exist     |  acts, replies, and is gone
+   +---------------------------+
+
+   idle cost : ~0 -- nothing runs between messages
+   sleeping agent? : reached -- the message's ARRIVAL is the wakeup
+```
 
 ## Model
 
