@@ -474,7 +474,8 @@ that at last exists: an agent, which can only be woken by a returning process.
 ## Citation
 
 The design argument, the measured token-cost receipt, and the prior-art lineage
-are written up as a citable preprint:
+are written up as a citable preprint. If it informs your work, cite it. The
+citation:
 
 > V. Gavrilov, *A Wakeup, Not a Broker: The Minimal Transport for Coordinating
 > Stateless LLM Agents*. Zenodo, 2026. <https://doi.org/10.5281/zenodo.21206970>
