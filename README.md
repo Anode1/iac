@@ -502,6 +502,10 @@ citation:
 
 The DOI is the concept DOI - it always resolves to the latest version.
 
+## See also
+
+[agent-recipes](https://github.com/Anode1/agent-recipes) - short prompts for working with coding agents; iac is one of them (coordinate a fleet over a shared log).
+
 ## License
 
 ISC (see LICENSE) - do anything, keep the notice, no warranty.
