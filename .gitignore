@@ -1,5 +1,5 @@
-iac
-tests
+/iac
+/tests
 *.o
 *.d
 # a live board (runtime log / cursors / roster / claims) -- never commit it

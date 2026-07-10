@@ -197,6 +197,13 @@ Concretely: ten agents polling their own inboxes overnight burn roughly
 **$160-$1,400** just watching empty mailboxes; on `iac` they wait for **$0**. The
 measured receipt is in the [paper](https://doi.org/10.5281/zenodo.21206970).
 
+And why not the lighter Unix tools directly - a named pipe (`mkfifo`),
+`inotifywait`, `tail -f`? Those give you a byte stream, not the model: no total
+order across many senders, no one-write broadcast, no per-reader cursor, no
+atomic claim-one, no presence. `iac` is those semantics over an append-only log;
+the pipe is the transport it would have used, plus the coordination a fleet
+actually needs.
+
 ## Model
 
     a ROOM      is a directory
@@ -342,7 +349,10 @@ running a fleet - the verbs as a control plane, when to `drain` vs park - is
 ## Limits (honest)
 
 - Same host / shared filesystem. For across-host, put the room dir on a shared
-  mount, or swap the log for a socket (the framing is unchanged).
+  mount, or swap the log for a socket (the framing is unchanged). Caveat: inotify
+  does not fire for remote writes on an NFS/shared mount, so over such a mount the
+  wakeup degrades to the 100 ms poll (delivery still works); the sub-millisecond
+  inotify path is a single-host property.
 - Latency is process spin-up plus the wake: on Linux a parked `recv` wakes on an
   inotify append event (sub-millisecond, 0% idle CPU); elsewhere it falls back to
   a 100 ms poll. Either way it is right for coordination, wrong for a chatty
