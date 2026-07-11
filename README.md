@@ -502,6 +502,10 @@ citation:
 
 The DOI is the concept DOI - it always resolves to the latest version.
 
+## Claude Code skill
+
+This repo ships a Claude Code skill at [`.claude/skills/iac/SKILL.md`](.claude/skills/iac/SKILL.md): it teaches a coding agent to wait on `iac recv` instead of polling, and to send, ask, and coordinate over a room. Copy it into your own project's `.claude/skills/` to give your agent the same.
+
 ## See also
 
 [agent-recipes](https://github.com/Anode1/agent-recipes) - short prompts for working with coding agents; iac is one of them (coordinate a fleet over a shared log).
