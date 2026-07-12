@@ -34,6 +34,17 @@ agent's own name. The sender's identity is the `IAC_FROM` environment variable.
 - Do not loop-check the log: a parked `recv` is free, a poll is an inference each
   time.
 
+## Stay on the board (the one rule agents get wrong)
+You are a PERSISTENT worker: finishing a task does NOT mean you are done. After you
+send a result, your very next action is to block on `iac recv` again -- you are only
+"done" while parked in that recv. Never end your turn without an outstanding recv; an
+agent that finishes work and forgets to re-`recv` goes dormant, awake but unreachable.
+Two setup slips bite first-timers: (1) every teammate must share the SAME room path --
+run `iac who <room>` and confirm you see the others, or you are on the wrong board and
+invisible; (2) you must be holding a `recv` to be reachable at all. For a hands-off
+loop where bash re-blocks (no reparking to remember), use the background while-driver:
+`while :; do m=$(iac recv <room> <me> 3600) && { # act on "$m"; }; done`.
+
 ## Send
 - `IAC_FROM=<me> iac send <room> <to> <message>` where `<to>` is another agent's
   name, `*` (all), a list like `a,c`, or `?` (whoever is free claims it).
