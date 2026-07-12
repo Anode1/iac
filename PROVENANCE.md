@@ -74,21 +74,6 @@ preprint's.
 | Jul 2 2026      | `iac` first public commit — rooms, broadcast/p2p/subset/claim-one over a shared log, `flock` presence (C99, zero deps, ISC) |
 | Jul 2026        | Preprint *A Wakeup, Not a Broker*, Zenodo DOI `10.5281/zenodo.21206970`; CI on Linux + macOS with ASan/UBSan |
 
-## On parallel invention
-
-The raw ingredients are commodity and the field is crowded, so if a larger group
-ships something functionally similar, the rational reading is **parallel
-invention, not derivation** — convergence is the expected outcome when many
-capable people work the same adjacent problem at once. The one nuance particular
-to `iac`: its vantage (systems, not frameworks) is rarer among today's
-agent builders than, say, "screenshot the page" is, so independent convergence on
-*this specific reframing* is less likely than for a commodity capability — less
-likely, not impossible; systems programmers exist everywhere, including at the
-big labs, and to any of them the wakeup is obvious once named.
-
-Either way, nothing here is a priority claim. The record is dated, the argument
-is written down and citable, and that is the durable form of the contribution.
-
 ## What is asked in return
 
 Attribution — a citation. Not money, not a dispute. If the idea informs your
