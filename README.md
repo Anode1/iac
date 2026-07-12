@@ -502,6 +502,10 @@ citation:
 
 The DOI is the concept DOI - it always resolves to the latest version.
 
+What `iac` claims and what it does not - the wakeup framing, the honest
+commodity-vs-synthesis line, the lineage, and the dates - is in
+[`PROVENANCE.md`](PROVENANCE.md).
+
 ## Claude Code skill
 
 This repo ships a Claude Code skill at [`.claude/skills/iac/SKILL.md`](.claude/skills/iac/SKILL.md): it teaches a coding agent to wait on `iac recv` instead of polling, and to send, ask, and coordinate over a room. Copy it into your own project's `.claude/skills/` to give your agent the same.
