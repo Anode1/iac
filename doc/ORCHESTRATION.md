@@ -111,7 +111,7 @@ a shared mount and keep the board).
   coordinator.
 - **Request / response** -- `ask` for a single round-trip answer.
 - **Supervision** -- `who` + `hold` beacons to see the fleet; a `shutdown`
-  broadcast for graceful stop (hard stop is always `Ctrl-C`/`kill`; RECEIVE_MODEL §8).
+  broadcast for graceful stop (hard stop is always `Ctrl-C`/`kill`; RECEIVE_MODEL §9).
 - **Human-in-the-loop** -- the keyboard-priority driver, so a person can interrupt
   and redirect a running fleet (RECEIVE_MODEL §6). A runnable reference is
   [`examples/kbd_driver.c`](../examples/kbd_driver.c): it waits on the keyboard and

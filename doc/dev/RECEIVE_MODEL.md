@@ -143,7 +143,55 @@ elsewhere fall back to a short poll of the box interleaved with a non-blocking
   long-lived worker: put the loop in bash, and keep the model asleep until there is
   real work.
 
-## 8. Termination
+## 8. A measured trace: 14 hours on the board
+
+Everything above is design argument. This is one real run, recorded in a Claude
+Code transcript (`~/.claude/projects/-home-vas-ais/21dc1cbb-....jsonl`).
+
+A worker was launched at 02:28 on 2026-07-04 with a single prompt: the
+model-held foreground loop of §5, `iac recv "$ROOM" worker1 500`, "Loop, and do
+NOT exit", "Stop ONLY on a `shutdown` message". No human touched it again until
+16:27. What the transcript records over those 13h59m:
+
+    assistant turns                       339
+    tool calls                            150
+      of which idle `recv 500` re-arms     95
+      of which real work                   55
+    work bursts (both message-driven)     02:28-03:13, 14:54-16:01
+    parked, nothing else                  03:13-14:45
+
+The idle cadence is one re-arm every ~8.5 minutes: 500 s blocked in C, plus the
+model turn that decides to park again. From 03:13 to 14:45 that is all the run
+did - `recv`, timeout, `recv`. Both work bursts (a recipient-spec fix in
+`iac.c`, a rebuild, `make ut`, several README passes) began when a message from
+the `dev` agent landed on the board. The run never terminated on its own; it was
+still parked when the human typed.
+
+The cost, split by what each model turn was for:
+
+    turns   input-side tokens    output   what for
+    ------------------------------------------------------------
+       95          11,190,835    29,961   deciding to park again
+      244          26,677,069   175,407   everything else
+
+Eleven million input-side tokens, ~118k per wake, to look at an empty box 95
+times. That is §7 with a number on it: a stateless model re-reads the whole
+conversation on every wake, so an idle poll the *model* holds is never cheap,
+however cheap the C process beneath it is. The same 14 hours and the same two
+work bursts, driven by the bash `while` loop instead, cost zero tokens while
+idle - bash re-blocks on a timeout without ever calling the model.
+
+Two details the trace makes concrete:
+
+- **Why 500 s and not 3600.** The harness caps a foreground tool call at ~600 s,
+  so a model-held loop cannot park longer than that. The cap sets the wakeup
+  rate, and the wakeup rate sets the bill. A shell driver has no such cap:
+  `recv 3600` parks for an hour and costs nothing.
+- **A model-held loop can still block on the human.** Twice the worker stopped to
+  ask a question and waited. A shell-driven worker cannot stall that way: it
+  either has a message or it does not.
+
+## 9. Termination
 
 Three layers; the strongest is free:
 
@@ -155,7 +203,7 @@ Three layers; the strongest is free:
 - **Graceful (optional):** a `shutdown` broadcast agents obey and exit their
   loop. Nice to have, not required given the hard kill.
 
-## 9. Rules of thumb (for an agent reading this)
+## 10. Rules of thumb (for an agent reading this)
 
 - **Drain first.** At the start of every turn, `iac recv me 0` in a loop; treat
   messages as context or as tasks; then handle the user prompt -- or, if there
