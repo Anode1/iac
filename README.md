@@ -74,6 +74,36 @@ among mutually-trusting agents - not across machines, not for a chatty inner loo
 Why files-and-a-`recv` beats a cloud queue, MCP server, or bot is in
 [Why not a message queue…](#why-not-a-message-queue-an-mcp-server-or-a-bot).
 
+### Against just saying "spawn some subagents"
+
+Every coding agent already understands "hire a few testers" or "outsource this",
+and answers it by spawning children inside its own session. That is often the
+right answer, and `iac` is not a replacement for it. The two are different shapes:
+
+|  | spawned subagents | `iac` peers |
+| --- | --- | --- |
+| topology | a star: one parent, children who report and exit | a mesh of equals, no owner |
+| lifetime | until they answer | until you stop them |
+| reachable afterwards | no | yes, parked on `recv` |
+| context | framed by the parent's prompt | its own history, model, machine, human |
+| integration | the parent's job | the board, which is auditable |
+| human mid-flight | cannot interrupt | is just another name |
+| record | inside a harness | a plain-text file you can `cat`, `grep`, version |
+
+One question decides it: **does this participant need to be reachable after it
+finishes what it is doing now?** A subagent never does, because it was invoked
+holding its task and dies having answered. That is why subagents have no wakeup
+problem and need nothing like this. If the answer is yes, you want a name on a
+board, and everything above follows from that.
+
+So use subagents for a bounded fan-out with one owner who integrates the results,
+and reach for `iac` when the participants outlive their current task: several
+terminals open at once, work spanning projects, agents that must still be there
+tomorrow, a human who wants to redirect a running team, or contexts that must not
+share a parent's framing because the parent's blind spot would propagate to all
+of them. Putting a board between two agents that will never speak to each other
+is overhead; you wanted a subagent.
+
 ## Getting started
 
 ### Supported systems
