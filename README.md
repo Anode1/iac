@@ -142,7 +142,7 @@ is a one-screen reference; [Use](#use) documents every verb.
 - **Latency** - process start plus the wake: on Linux a parked `recv` wakes on
   an inotify append event (sub-millisecond); elsewhere it falls back to a 100 ms
   poll. Right for coordination; wrong for a chatty inner loop (see
-  [Limits](#limits-honest)).
+  [Limits](#limits)).
 - **Exit codes** (branch on these in scripts) - `recv`/`ask`: `0` delivered,
   `1` timed out, `2` error. `send`: `0` on append.
 - **Durability & recovery** - the log persists and is greppable (`iac log`); a
@@ -376,7 +376,7 @@ control), is in [`doc/dev/RECEIVE_MODEL.md`](doc/dev/RECEIVE_MODEL.md); the guid
 running a fleet - the verbs as a control plane, when to `drain` vs park - is
 [`doc/ORCHESTRATION.md`](doc/ORCHESTRATION.md).
 
-## Limits (honest)
+## Limits
 
 - Same host / shared filesystem. For across-host, put the room dir on a shared
   mount, or swap the log for a socket (the framing is unchanged). Caveat: inotify
@@ -532,7 +532,7 @@ citation:
 
 The DOI is the concept DOI - it always resolves to the latest version.
 
-What `iac` claims and what it does not - the wakeup framing, the honest
+What `iac` claims and what it does not - the wakeup framing, the
 commodity-vs-synthesis line, the lineage, and the dates - is in
 [`PROVENANCE.md`](PROVENANCE.md).
 
