@@ -162,9 +162,9 @@ with the infrastructure, credentials, and latency to match.
 But the wakeup an agent needs (above) is not a socket - it is a blocking `recv`
 whose *return* is the one signal a parent already gets, "a background child
 finished." Once receive is a blocking poll, the whole problem collapses to files
-on a shared disk: for a fleet on one machine (the common case) that is not a
-compromise but the entire cost - no server, no accounts, no network to secure,
-millisecond start. A heavy service earns its keep only when the fleet must span
+on a shared disk: for a fleet on one machine (the common case) that is the whole
+cost - no server, no accounts, no network to secure, millisecond start. A heavy
+service earns its keep only when the fleet must span
 machines; `iac` is the point almost nobody targets, because the network-service
 assumption hides it.
 
@@ -316,7 +316,7 @@ it (and its own), advancing its cursor, so successive calls drain in order.
 `send` appends with one `writev` under `flock`, so the log stays a clean total
 order even with many concurrent senders.
 
-## Presence (who is who, and who is live)
+## Presence
 
 Each agent picks a name; the roster maps it to a pid and a last-seen time, so an
 outside observer can tell which OS process is `john` and which is `nick`:
@@ -460,6 +460,8 @@ file or a lock, and a clean build under `-pedantic` plus AddressSanitizer and
 UBSan (`make pedantic ut-asan ut-ubsan`). Rather than restate the rationale, iac
 conforms to the canonical document:
 [AIS `doc/dev/STYLE.md`](https://github.com/Anode1/ais/blob/main/doc/dev/STYLE.md).
+
+How the documents are written is in [`doc/dev/PROSE.md`](doc/dev/PROSE.md).
 
 ## Platforms
 

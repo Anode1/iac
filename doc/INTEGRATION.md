@@ -37,7 +37,7 @@ They solve different layers, and neither replaces iac:
 
 So the whole integration is the ~40-line bridge below. iac is unchanged.
 
-## Telegram -- recommended, and the reference bridge
+## Telegram, the reference bridge
 
 Telegram is by far the simplest for this: a free bot token from `@BotFather`, no
 business verification, **no 24-hour window and no template approval** (your agent

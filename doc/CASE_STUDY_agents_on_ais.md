@@ -73,7 +73,7 @@ first-timer walkthrough), `designer` (modern UX/HIG, compared to Notes/Bear/Noti
 independently → post findings → *every finding needs a second from another lens or it
 drops to nitpick* → argue severity → converge on one ranked list.
 
-**What the debate produced — this is the story a fan-out can't tell:**
+**What the debate produced:**
 
 - **Cross-confirmation ranked by consensus.** Two findings hit *all three* lenses
   independently and rose to the top: (a) passphrase fields with **no confirm and no
