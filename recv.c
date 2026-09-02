@@ -47,12 +47,12 @@ static void idle_wait(int ino, const char *logp)
     { struct timespec s = { 0, IAC_POLL_MS * 1000000L }; nanosleep(&s, NULL); }
 }
 
-static int recv_loop(const char *room, const char *me, int timeout_s, int ino, int all)
+static int recv_loop(const char *room, const char *me, int timeout_s, int ino, int all, int stale_s)
 {
     char logp[4096], curp[4096], hdr[8192], from[256], to[4096];
     long cursor, epoch, frame_end;
     size_t len;
-    int waited_ms = 0, limit_ms = timeout_s * 1000, rc = 0, got = 0;
+    int waited_ms = 0, limit_ms = timeout_s * 1000, rc = 0, got = 0, ticks = 0;
     FILE *f = NULL;                                      /* held across the frame scan; closed once at `done` */
 
     if (p_log(logp, sizeof logp, room)) return die_path();
@@ -100,6 +100,10 @@ static int recv_loop(const char *room, const char *me, int timeout_s, int ino, i
             if (got) { rc = 0; goto done; }             /* -a: the burst is delivered */
         }
         if (recover_orphan(room, me)) { rc = 0; goto done; }   /* re-run a dead worker's task */
+        if (stale_s > 0 && ++ticks % 20 == 0 && presence_alone(room, me, stale_s)) {
+            fprintf(stderr, "iac: alone in %s (no peer active within %ds)\n", room, stale_s);
+            rc = 3; goto done;                          /* -e: everyone else is gone */
+        }
         if (waited_ms >= limit_ms) { rc = 1; goto done; }      /* nothing for me in time */
         idle_wait(ino, logp);                           /* wake on append (inotify) or after the tick */
         waited_ms += IAC_POLL_MS;
@@ -112,12 +116,15 @@ done:
 /* recv, wrapped to hold presence + an inotify wake for the whole blocking wait.
  * all=1 (-a): after the first message, deliver every further frame already
  * queued for me in the same return -- one wakeup per burst, not per frame,
- * so an LLM seat pays one turn where recv-then-drain would cost two. */
-int cmd_recv(const char *room, const char *me, int timeout_s, int all)
+ * so an LLM seat pays one turn where recv-then-drain would cost two.
+ * stale_s>0 (-e): exit 3 when others are registered and none is online or
+ * seen within stale_s -- the C child watches the roster so a seat never
+ * spends model turns discovering that its peers are gone. */
+int cmd_recv(const char *room, const char *me, int timeout_s, int all, int stale_s)
 {
     int pfd = presence_enter(room, me);
     int ino = watch_open();
-    int rc = recv_loop(room, me, timeout_s, ino, all);
+    int rc = recv_loop(room, me, timeout_s, ino, all, stale_s);
     if (ino >= 0) close(ino);
     if (pfd >= 0) close(pfd);
     return rc;

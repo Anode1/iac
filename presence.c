@@ -5,6 +5,7 @@
 #include "common.h"
 
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <time.h>
@@ -96,6 +97,38 @@ int cmd_hold(const char *room, const char *me)
     (void)pid; (void)seen;
     for (;;) pause();                         /* hold until signaled/killed */
     return 0;                                /* not reached */
+}
+
+/* 1 if at least one OTHER member is registered and none of them is online
+ * (flock held) or seen within stale_s seconds; 0 otherwise, including a room
+ * where nobody else ever joined (a lone worker's recv stays a plain recv). */
+int presence_alone(const char *room, const char *me, int stale_s)
+{
+    char rosd[4096], rosp[4096];
+    struct dirent *e;
+    DIR *d;
+    long now = time(NULL);
+    int others = 0, alive = 0;
+    if (snprintf(rosd, sizeof rosd, "%s/roster", room) >= (int)sizeof rosd) return 0;
+    d = opendir(rosd);
+    if (d == NULL) return 0;
+    while ((e = readdir(d)) != NULL) {
+        long join = 0, pid = 0, seen = 0;
+        int fd, held = 0;
+        if (e->d_name[0] == '.' || strcmp(e->d_name, me) == 0) continue;
+        if (p_ros(rosp, sizeof rosp, room, e->d_name)) continue;
+        others++;
+        roster_read(rosp, &join, &pid, &seen);
+        fd = open(rosp, O_RDONLY);
+        if (fd >= 0) {
+            if (flock(fd, LOCK_EX | LOCK_NB) != 0) held = 1;
+            else flock(fd, LOCK_UN);
+            close(fd);
+        }
+        if (held || now - seen <= stale_s) alive++;
+    }
+    closedir(d);
+    return others > 0 && alive == 0;
 }
 
 /* List members: online if the roster flock is held (beacon or parked recv), else offline with "seen Ns ago". */

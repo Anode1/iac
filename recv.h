@@ -5,7 +5,7 @@
 #ifndef IAC_RECV_H
 #define IAC_RECV_H
 
-int cmd_recv(const char *room, const char *me, int timeout_s, int all);
+int cmd_recv(const char *room, const char *me, int timeout_s, int all, int stale_s);
 int cmd_drain(const char *room, const char *me);
 int cmd_follow(const char *room, const char *me, int idle_s);
 

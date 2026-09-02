@@ -8,6 +8,9 @@
  * (parked recv == online). Returns the held fd, or -1. Caller closes it. */
 int presence_enter(const char *room, const char *me);
 
+/* 1 if others are registered and none is online or seen within stale_s. */
+int presence_alone(const char *room, const char *me, int stale_s);
+
 int cmd_join(const char *room, const char *me);
 int cmd_leave(const char *room, const char *me);
 int cmd_hold(const char *room, const char *me);

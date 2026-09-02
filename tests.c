@@ -357,6 +357,17 @@ int main(void)
     snprintf(path, sizeof path, "%s/r", base);
     CHECK(strcmp(slurp(path, out, sizeof out), "1") == 0, "recv -a: cursor advanced past the burst");
 
+    /* 27. recv -e: exit 3 once every other member is stale; never fires alone in the room */
+    snprintf(room, sizeof room, "%s/r27", base);
+    snprintf(cmd, sizeof cmd, "./iac join %s A >/dev/null 2>&1; ./iac join %s B >/dev/null 2>&1", room, room); if (system(cmd)) {}
+    snprintf(cmd, sizeof cmd, "./iac recv %s A 8 -e 1 >/dev/null 2>&1; printf %%d $? >%s/r", room, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/r", base);
+    CHECK(strcmp(slurp(path, out, sizeof out), "3") == 0, "recv -e: exits 3 when the only peer goes stale");
+    snprintf(room, sizeof room, "%s/r27b", base);
+    snprintf(cmd, sizeof cmd, "./iac join %s A >/dev/null 2>&1", room); if (system(cmd)) {}
+    snprintf(cmd, sizeof cmd, "./iac recv %s A 3 -e 1 >/dev/null 2>&1; printf %%d $? >%s/r", room, base); if (system(cmd)) {}
+    CHECK(strcmp(slurp(path, out, sizeof out), "1") == 0, "recv -e: a room with no other member times out normally");
+
     snprintf(cmd, sizeof cmd, "rm -rf %s", base); if (system(cmd)) {}
     printf("%s\n", fails ? "FAILED" : "all passed");
     return fails ? 1 : 0;
