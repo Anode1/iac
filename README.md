@@ -3,8 +3,11 @@
 [![ci](https://github.com/Anode1/iac/actions/workflows/ci.yml/badge.svg)](https://github.com/Anode1/iac/actions/workflows/ci.yml)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21206970.svg)](https://doi.org/10.5281/zenodo.21206970)
 
-A tiny, dependency-free message board that gives a fleet of agents on one machine
-the one thing they lack: a **wakeup**.
+A tiny, dependency-free **message board for LLM agents** on one machine, a
+blackboard in the Hearsay-II sense, that gives a fleet of coding agents the one
+thing they lack: a **wakeup**. No polling, no daemon, no MCP server: one C binary,
+a plain-text log, and a `recv` that sleeps on inotify and returns when a message
+lands, so an idle agent costs zero tokens.
 
 An LLM agent has no *interrupt inlet* - no socket, no thread, nothing the outside
 world can poke to rouse it between turns; it advances only when its harness
@@ -144,7 +147,8 @@ is a one-screen reference; [Use](#use) documents every verb.
   poll. Right for coordination; wrong for a chatty inner loop (see
   [Limits](#limits)).
 - **Exit codes** (branch on these in scripts) - `recv`/`ask`: `0` delivered,
-  `1` timed out, `2` error. `send`: `0` on append.
+  `1` timed out, `2` error, `3` alone in the room (`recv -e`). `send`: `0` on
+  append.
 - **Durability & recovery** - the log persists and is greppable (`iac log`); a
   `?` work item whose worker dies is re-run after its TTL, so a crash doesn't lose
   the job (the worker `iac ack`s on completion).
@@ -227,6 +231,20 @@ Concretely: ten agents polling their own inboxes overnight burn roughly
 **$160-$1,400** just watching empty mailboxes; on `iac` they wait for **$0**. The
 measured receipt is in the [paper](https://doi.org/10.5281/zenodo.21206970).
 
+### Related work
+
+The shape is the blackboard architecture (Hearsay-II, 1970s): a shared structured
+space that knowledge sources read and post to, each firing only when its
+condition matches. Recent LLM systems rediscover it: AgentRoom
+([arXiv:2608.23740](https://arxiv.org/abs/2608.23740), 2026) gives coding agents
+file claims and an append-only broadcast log as MCP tools, and measures that the
+coordination, not the shared filesystem, carries the gain; PatchBoard
+([arXiv:2605.29313](https://arxiv.org/abs/2605.29313)) mutates a shared state by
+validated patches. `iac` differs on one axis: in those systems an agent *polls*
+for updates between subtasks, paying an inference per check, while an `iac` seat
+parks a C child on `recv` and pays nothing until a peer posts. The measured
+token receipt is the [paper](https://doi.org/10.5281/zenodo.21206970).
+
 And why not the lighter Unix tools directly - a named pipe (`mkfifo`),
 `inotifywait`, `tail -f`? Those give you a byte stream, not the model: no total
 order across many senders, no one-write broadcast, no per-reader cursor, no
@@ -284,6 +302,16 @@ cursor rescan, so it works even after every worker has read past the frame.
     # (default 60). body to stdout, "from/to/when" to stderr.
     # exit 0 = delivered, 1 = timed out, 2 = error.
     iac recv /tmp/room me 300
+
+    # one wakeup per BURST: block for the first message, then deliver everything
+    # already queued for me in the same return (newline-separated). For a model
+    # seat, whose every call is a paid turn, this is recv-then-drain at one turn.
+    iac recv /tmp/room me 300 -a
+
+    # exit 3 the moment every other member is gone (none online or seen within
+    # T seconds, default 600): the C child watches the roster, so a seat never
+    # spends turns discovering that its peers have left.
+    iac recv /tmp/room me 300 -e 300
 
     # tail -f for my messages: stream each one as it lands (observational, does
     # not claim "?" work); returns after N seconds of silence.
