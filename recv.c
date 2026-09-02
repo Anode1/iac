@@ -47,12 +47,12 @@ static void idle_wait(int ino, const char *logp)
     { struct timespec s = { 0, IAC_POLL_MS * 1000000L }; nanosleep(&s, NULL); }
 }
 
-static int recv_loop(const char *room, const char *me, int timeout_s, int ino)
+static int recv_loop(const char *room, const char *me, int timeout_s, int ino, int all)
 {
     char logp[4096], curp[4096], hdr[8192], from[256], to[4096];
     long cursor, epoch, frame_end;
     size_t len;
-    int waited_ms = 0, limit_ms = timeout_s * 1000, rc = 0;
+    int waited_ms = 0, limit_ms = timeout_s * 1000, rc = 0, got = 0;
     FILE *f = NULL;                                      /* held across the frame scan; closed once at `done` */
 
     if (p_log(logp, sizeof logp, room)) return die_path();
@@ -85,9 +85,11 @@ static int recv_loop(const char *room, const char *me, int timeout_s, int ino)
                         else
                             fprintf(stderr, "iac: from %s to %s at %ld\n", from, to, epoch);
                         fwrite(g_body, 1, len, stdout);
+                        if (all) fputc('\n', stdout);   /* separate successive bodies, as drain does */
                         fflush(stdout);
                         write_cursor(curp, frame_end);
-                        rc = 0; goto done;
+                        got = 1;
+                        if (!all) { rc = 0; goto done; }
                     }
                 }
                 cursor = frame_end;                     /* not for me (or lost claim): skip on */
@@ -95,6 +97,7 @@ static int recv_loop(const char *room, const char *me, int timeout_s, int ino)
             }
             fclose(f); f = NULL;
             write_cursor(curp, cursor);                 /* persist scan progress */
+            if (got) { rc = 0; goto done; }             /* -a: the burst is delivered */
         }
         if (recover_orphan(room, me)) { rc = 0; goto done; }   /* re-run a dead worker's task */
         if (waited_ms >= limit_ms) { rc = 1; goto done; }      /* nothing for me in time */
@@ -106,12 +109,15 @@ done:
     return rc;
 }
 
-/* recv, wrapped to hold presence + an inotify wake for the whole blocking wait. */
-int cmd_recv(const char *room, const char *me, int timeout_s)
+/* recv, wrapped to hold presence + an inotify wake for the whole blocking wait.
+ * all=1 (-a): after the first message, deliver every further frame already
+ * queued for me in the same return -- one wakeup per burst, not per frame,
+ * so an LLM seat pays one turn where recv-then-drain would cost two. */
+int cmd_recv(const char *room, const char *me, int timeout_s, int all)
 {
     int pfd = presence_enter(room, me);
     int ino = watch_open();
-    int rc = recv_loop(room, me, timeout_s, ino);
+    int rc = recv_loop(room, me, timeout_s, ino, all);
     if (ino >= 0) close(ino);
     if (pfd >= 0) close(pfd);
     return rc;

@@ -343,6 +343,20 @@ int main(void)
         CHECK(strcmp(slurp(path, out, sizeof out), "2") == 0, "spec cap: a comma-list over 1024 chars total is rejected");
     }
 
+    /* 26. recv -a: one wakeup delivers the whole queued burst, in order */
+    snprintf(room, sizeof room, "%s/r26", base);
+    snprintf(cmd, sizeof cmd,
+             "IAC_FROM=X ./iac send %s A -- one; IAC_FROM=Y ./iac send %s A -- two; "
+             "IAC_FROM=X ./iac send %s B -- other; IAC_FROM=Y ./iac send %s A -- three",
+             room, room, room, room); if (system(cmd)) {}
+    snprintf(cmd, sizeof cmd, "./iac recv %s A 3 -a >%s/o 2>/dev/null", room, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/o", base);
+    CHECK(strcmp(slurp(path, out, sizeof out), "one\ntwo\nthree\n") == 0,
+          "recv -a: the burst arrives in one return, in order, others' frames skipped");
+    snprintf(cmd, sizeof cmd, "./iac recv %s A 1 >/dev/null 2>&1; printf %%d $? >%s/r", room, base); if (system(cmd)) {}
+    snprintf(path, sizeof path, "%s/r", base);
+    CHECK(strcmp(slurp(path, out, sizeof out), "1") == 0, "recv -a: cursor advanced past the burst");
+
     snprintf(cmd, sizeof cmd, "rm -rf %s", base); if (system(cmd)) {}
     printf("%s\n", fails ? "FAILED" : "all passed");
     return fails ? 1 : 0;

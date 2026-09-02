@@ -34,17 +34,18 @@
 static int run_recv(int argc, char **argv)
 {
     const char *room = NULL, *me = NULL, *secs = NULL;
-    int follow = 0, t, i;
+    int follow = 0, all = 0, t, i;
     for (i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--follow") == 0 || strcmp(argv[i], "-f") == 0) follow = 1;
+        else if (strcmp(argv[i], "--all") == 0 || strcmp(argv[i], "-a") == 0) all = 1;
         else if (room == NULL) room = argv[i];
         else if (me == NULL) me = argv[i];
         else if (secs == NULL) secs = argv[i];
     }
-    if (me == NULL || !ok_name(me)) return die("usage: iac recv <room> <me> [seconds] [--follow]");
+    if (me == NULL || !ok_name(me)) return die("usage: iac recv <room> <me> [seconds] [--follow] [--all]");
     t = (secs != NULL) ? atoi(secs) : 60;
     if (t < 0) t = 0;
-    return follow ? cmd_follow(room, me, t) : cmd_recv(room, me, t);
+    return follow ? cmd_follow(room, me, t) : cmd_recv(room, me, t, all);
 }
 
 /* One-screen help: every verb, and the env knobs that shape them. */
@@ -54,7 +55,8 @@ static void usage(FILE *out)
         "iac -- inter-agent communication over a shared-log room\n\n"
         "usage:\n"
         "  iac send  <room> <to> [text...]  append a message (to: name | a,b,c | * | ?; stdin if no text)\n"
-        "  iac recv  <room> <me> [secs] [-f] block for the next message for me (default 60; -f/--follow: tail -f, no claim)\n"
+        "  iac recv  <room> <me> [secs] [-f] block for the next message for me (default 60; -f/--follow: tail -f, no claim;\n"
+        "                                   -a/--all: deliver the whole queued burst in one return, newline-separated)\n"
         "  iac drain <room> <me>            deliver ALL my queued messages at once, non-blocking (exit 1 if none)\n"
         "  iac ask   <room> <to> [text...]  send, then block for the reply (timeout $IAC_ASK_TIMEOUT)\n"
         "  iac ack   <room> <me> <id>       mark a claimed \"?\" task done (id from recv's stderr)\n"

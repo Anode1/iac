@@ -84,5 +84,5 @@ int cmd_ask(const char *room, const char *to, char **argv, int argi, int argc)
     if (me == NULL || !ok_name(me)) me = "anon";
     rc = cmd_send(room, to, argv, argi, argc);   /* ask the question... */
     if (rc != 0) return rc;
-    return cmd_recv(room, me, t);                 /* ...then wait for the answer */
+    return cmd_recv(room, me, t, 0);              /* ...then wait for the one answer */
 }
