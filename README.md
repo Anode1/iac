@@ -140,8 +140,9 @@ is a one-screen reference; [Use](#use) documents every verb.
 
 ### What to expect
 
-- **Delivery** - `recv` returns *once*, on the first message addressed to you: a
-  single total order, and broadcast is one write regardless of audience.
+- **Delivery** - `recv` returns *once*, on the first message addressed to you (with
+  `-a`, once per burst, carrying everything queued): a single total order, and
+  broadcast is one write regardless of audience.
 - **Latency** - process start plus the wake: on Linux a parked `recv` wakes on
   an inotify append event (sub-millisecond); elsewhere it falls back to a 100 ms
   poll. Right for coordination; wrong for a chatty inner loop (see
@@ -300,7 +301,7 @@ cursor rescan, so it works even after every worker has read past the frame.
 
     # receive the next message addressed to me, blocking up to N seconds
     # (default 60). body to stdout, "from/to/when" to stderr.
-    # exit 0 = delivered, 1 = timed out, 2 = error.
+    # exit 0 = delivered, 1 = timed out, 2 = error, 3 = alone in the room (-e).
     iac recv /tmp/room me 300
 
     # one wakeup per BURST: block for the first message, then deliver everything
@@ -562,9 +563,6 @@ citation:
 
 The DOI is the concept DOI - it always resolves to the latest version.
 
-What `iac` claims and what it does not - the wakeup framing, the
-commodity-vs-synthesis line, the lineage, and the dates - is in
-[`PROVENANCE.md`](PROVENANCE.md).
 
 ## Claude Code skill
 
