@@ -38,7 +38,7 @@ not by iac — by a factor of thousands. The transport is never the bottleneck.
 
 Measured on the Anthropic API (claude-sonnet-5), which returns exact token usage
 per call. One agent, context `C = 49,836` tokens, polling every `p = 30 s` for one
-hour (`T/p = 120` activations). Reproduce with `experiment/tokenbill.py`.
+hour (`T/p = 120` activations). Reproduce with `iac/experiment/tokenbill.py` in github.com/Anode1/articles.
 
 | Approach | Model wake-ups | Tokens processed | Cost (billed) |
 |----------|---------------:|-----------------:|--------------:|
