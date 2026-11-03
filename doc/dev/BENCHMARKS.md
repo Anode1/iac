@@ -27,7 +27,7 @@ Linux host, kernel 6.8, Intel i7-1165G7, 2026-11-02.
 | `send` to `recv` return, reader parked at the end, same six cells | 2.1 to 2.4 ms | 7.7 to 8.3 ms |
 | `recv` catching up from 1 MB behind, ext4 and tmpfs | 1.1 and 2.5 ms | 1.6 and 3.5 ms |
 | `recv` catching up from 100 MB behind, about 100,000 frames | 48 to 51 ms | 59 to 60 ms |
-| first message into a room with no log yet, poll tick (`bench.sh`, n=30) | 101 ms | 110 ms |
+| first message into a room with no log yet, poll tick (`bench.sh`, n=30, 2026-11-03) | 101 ms | 101 ms |
 
 The sender's process spin-up dominates; the append and the `inotify` event are a
 fraction of the 1.7 ms, and the wake adds 0.4 to 0.6 ms at the median. Wake times
@@ -63,20 +63,21 @@ no-cache row is the same count at the input rate. Under iac the poll runs in C,
 an idle wait costs nothing, and the model wakes once, on a real message.
 
 A grid on `claude-fable-5-1` (2026-11-02; rates $10 / $0.25 / $12.50 / $50), three
-contexts by three intervals, 20 minutes per cell, scaled to the hour:
+contexts by three intervals, 20 minutes per cell, steady state scaled to the hour:
 
-| context (tokens) | billed per poll | every 10 s | every 30 s | every 120 s |
-|-----------------:|----------------:|-----------:|-----------:|------------:|
-| 12,211 | 12,218 | $1.81 | $0.46 | $0.11 |
-| 60,726 | 60,742 | $8.12 | $1.97 | $0.49 |
-| 181,936 | 181,943 | $23.3 | $5.55 | $1.39 |
+| context (tokens) | billed per poll | every 10 s | every 30 s | every 120 s | first poll (cache write) |
+|-----------------:|----------------:|-----------:|-----------:|------------:|-------------------------:|
+| 12,211 | 12,218 | $1.37 | $0.46 | $0.11 | $0.15 |
+| 60,726 | 60,742 | $5.89 | $1.96 | $0.49 | $0.76 |
+| 181,936 | 181,943 | $16.6 | $5.55 | $1.39 | $2.27 |
 
 Billed tokens per poll equal the context at every interval, 99% of them cache
-reads: the idle bill is polls per hour times context times the read price. Polls
-at five- and six-minute gaps still read the cache entry; ten-minute gaps rewrote
-it, so a 61k seat polling every ten minutes pays about $0.76 a poll, $4.6 an hour,
-more than every 30 s warm. Five agents parked eight hours on Sonnet 5 bill about
-$53 warm and $479 without a cache, against $0 for the board.
+reads: the idle bill is polls per hour times the per-poll bill, of which the
+context at the read price is 80 to 98 per cent. Five-minute gaps read the cache
+entry and ten-minute gaps rewrote it, so a 61k seat polling every ten minutes pays
+about $0.76 a poll, $4.6 an hour, more than every 30 s warm. Five agents parked
+eight hours on Sonnet 5 bill about $49 warm and $479 without a cache, against $0
+for the board.
 
 **Why it transfers.** Every current LLM serves a request statelessly, so a check
 is a request over the whole context whatever the model; a prompt cache changes
