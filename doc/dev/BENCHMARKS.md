@@ -1,69 +1,84 @@
 # Benchmarks
 
-Two numbers matter for iac: how long the transport takes to wake a reader
-(**measured, reproducible**), and what an agent spends to *wait* for that wake
-versus polling for it (**modeled** from the cost equation in
-[RECEIVE_MODEL.md](RECEIVE_MODEL.md)). They are kept separate on purpose: one is
-run, the other is arithmetic.
+Two numbers matter for iac: how long the transport takes to wake a reader, and
+what an agent spends to wait for that wake versus polling for it. Both are
+measured; the cost equation behind the second is in [RECEIVE_MODEL.md](RECEIVE_MODEL.md).
 
-## Latency — measured
+## Latency, measured
 
-Reproduce it:
+Reproduce the quick form:
 
 ```sh
-make            # build ./iac
+make                # build ./iac
 scripts/bench.sh    # Linux; GNU date required
 ```
 
 `bench.sh` parks a reader on a blocking `recv`, has a sender append, and times
-the wall-clock gap until `recv` returns, over N iterations. Representative run
-(one Linux host; absolute numbers vary with machine and load):
+the wall-clock gap until `recv` returns. The full run below used a C driver
+around the binary at commit `1247745` (`iac/experiment/transport/` in
+github.com/Anode1/articles): the log pre-filled with 1 KB frames addressed to
+another member to 0, 1 and 100 MB, on ext4 over NVMe and on tmpfs, read once so
+it sat in the page cache; 300 sends per parked cell, 30 per catch-up cell. One
+Linux host, kernel 6.8, Intel i7-1165G7, 2026-11-02.
 
-| Case | Path | Wake latency |
-|------|------|--------------|
-| Warm log (a live board) | `inotify` append event | **single-digit ms** (≈3–8 ms) |
-| Cold room (first message, log not yet created) | ~100 ms poll tick | **~100 ms** |
+| Stage | median | p99 or max |
+|-------|-------:|-----------:|
+| `send` process, fork to exit, one frame under `flock`; six cells, 0 to 100 MB, ext4 and tmpfs | 1.6 to 1.7 ms | 2.0 to 2.2 ms |
+| `send` to `recv` return, reader parked at the end, same six cells | 2.1 to 2.4 ms | 7.7 to 8.3 ms |
+| `recv` catching up from 1 MB behind, ext4 and tmpfs | 1.1 and 2.5 ms | 1.6 and 3.5 ms |
+| `recv` catching up from 100 MB behind, about 100,000 frames | 48 to 51 ms | 59 to 60 ms |
+| first message into a room with no log yet, poll tick (`bench.sh`, n=30) | 101 ms | 110 ms |
 
-The `inotify` wake itself is sub-millisecond; what you measure is dominated by
-the two **process spin-ups** (fork+exec of the sender and of the receiver), so
-delivery is millisecond-class overall. The cold-room case is higher only because
-the watch can attach once the `log` file exists — the first message into a
-brand-new room rides one poll tick, every message after it is warm.
+The sender's process spin-up dominates; the append and the `inotify` event are a
+fraction of the 1.7 ms, and the wake adds 0.4 to 0.6 ms at the median. Wake times
+cluster near 2 ms and near 7 ms, which is scheduler state. One wake in 1,800 took
+102 ms: a missed `inotify` event caught by the 100 ms fallback poll, which bounds
+the cost of a miss. The log's size does not enter: a reader parked at the end of
+100 MB wakes in the same 2.2 ms as at the end of an empty log, because it reads
+forward from its own cursor. A reader that has fallen behind pays for the frames
+it skips, about 2 GB/s from the page cache. Only the first message into a
+not-yet-created room pays the poll tick, because the watch attaches once the
+`log` file exists. A model turn is seconds to minutes, so the transport is three
+to four orders below it.
 
-This is the transport's whole contribution. An agent's own turn is **seconds**
-(a model inference), so the round-trip a human perceives is bounded by thinking,
-not by iac — by a factor of thousands. The transport is never the bottleneck.
+## Tokens, measured
 
-## Tokens — measured
+Measured on the Anthropic Messages API, which returns exact token usage per call.
+Harness, recorded usage and the grid script: `iac/experiment/` in
+github.com/Anode1/articles. Dollar figures are the measured token counts at list
+rates (platform.claude.com/docs/en/about-claude/pricing, read 2026-11-02).
 
-Measured on the Anthropic API (claude-sonnet-5), which returns exact token usage
-per call. One agent, context `C = 49,836` tokens, polling every `p = 30 s` for one
-hour (`T/p = 120` activations). Reproduce with `iac/experiment/tokenbill.py` in github.com/Anode1/articles.
+One agent on `claude-sonnet-5`, context 49,836 tokens, polling every 30 s for one
+hour (120 activations). Sonnet 5 rates: $2 / $0.20 / $2.50 / $10 per million
+input, cache-read, cache-write, output tokens.
 
-| Approach | Model wake-ups | Tokens processed | Cost (billed) |
-|----------|---------------:|-----------------:|--------------:|
-| Model polls itself (warm cache) | 120 | 5,980,320 | $1.99 |
-| Model polls itself (cold cache) | 120 | 5,980,320 | $17.95 |
-| `iac` wakeup (`recv` blocks in C) | **0** | **0** | **$0.00** |
+| Approach | Activations | Tokens billed | USD | |
+|----------|------------:|--------------:|----:|---|
+| Model polls itself every 30 s, cache warm | 120 | 5,980,320 | $1.33 | measured |
+| The same, no prompt cache | 120 | 5,980,320 | $11.97 | derived |
+| `iac` wakeup (`recv` blocks in C) | **0** | **0** | **$0.00** | measured |
 
-Two numbers, kept separate on purpose. **Processed** is what the model reads: a
-check is a full forward pass over the whole context — a language model has no
-cheaper way to look — so 120 checks read ~6M tokens regardless of caching.
-**Billed** is what you pay: warm (each poll inside the cache lifetime) cost $1.99
-for the hour, billed almost entirely as cache reads (5,926,081 of the tokens);
-cold — the same tokens with caching off — bills $17.95 (derived from the measured
-processed tokens at full input rate). Caching lowers the price, not the work, and
-never touches the activation count. Under iac the poll runs in C — an idle wait
-reads and costs nothing — and the model wakes **once, on a real message**.
+The warm hour is billed almost entirely as cache reads (5,926,081 tokens). The
+no-cache row is the same count at the input rate. Under iac the poll runs in C,
+an idle wait costs nothing, and the model wakes once, on a real message.
 
-Scaled to five agents parked overnight (8 h): the self-poll **processes ~240M
-tokens** and bills **~$80 warm** (~$720 cold), against **$0** for the board.
-Activations under iac scale with *work*, not *time*.
+A grid on `claude-fable-5-1` (2026-11-02; rates $10 / $0.25 / $12.50 / $50), three
+contexts by three intervals, 20 minutes per cell, scaled to the hour:
 
-**Not vendor-specific.** Every current LLM serves requests statelessly (a function
-from context to tokens, no process between calls), so the full-forward-pass "no
-cheap peek" and the `T/p` activation count hold for any model. Prompt caching is
-now offered across providers but discounts the bill only partially and never
-removes the activations; Anthropic's ~0.1x cache read is among the most generous,
-so the $1.99 warm figure is a favorable case — where a provider discounts less
-(some ~0.5x), polling costs more, not less.
+| context (tokens) | billed per poll | every 10 s | every 30 s | every 120 s |
+|-----------------:|----------------:|-----------:|-----------:|------------:|
+| 12,211 | 12,218 | $1.81 | $0.46 | $0.11 |
+| 60,726 | 60,742 | $8.12 | $1.97 | $0.49 |
+| 181,936 | 181,943 | $23.3 | $5.55 | $1.39 |
+
+Billed tokens per poll equal the context at every interval, 99% of them cache
+reads: the idle bill is polls per hour times context times the read price. Polls
+at five- and six-minute gaps still read the cache entry; ten-minute gaps rewrote
+it, so a 61k seat polling every ten minutes pays about $0.76 a poll, $4.6 an hour,
+more than every 30 s warm. Five agents parked eight hours on Sonnet 5 bill about
+$53 warm and $479 without a cache, against $0 for the board.
+
+**Why it transfers.** Every current LLM serves a request statelessly, so a check
+is a request over the whole context whatever the model; a prompt cache changes
+the price of that request and never its count. Cache discounts differ by provider
+and model, so the dollar rows are specific to the two models above.
