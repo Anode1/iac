@@ -548,13 +548,13 @@ The design argument, the measured token-cost receipt, and the prior-art lineage
 are written up as a citable preprint. If it informs your work, cite it. The
 citation:
 
-> V. Gavrilov, *A Wakeup, Not a Broker: The Minimal Transport for Coordinating
-> Stateless LLM Agents*. Zenodo, 2026. <https://doi.org/10.5281/zenodo.21206970>
+> V. Gavrilov, *Waking a Harness-Invoked Agent: A Blocking Receive in a Child
+> Process and the Token Cost of Polling Instead*. Zenodo, 2026. <https://doi.org/10.5281/zenodo.21206970>
 
 ```bibtex
 @techreport{gavrilov2026wakeup,
   author = {Gavrilov, Vasili},
-  title  = {A Wakeup, Not a Broker: The Minimal Transport for Coordinating Stateless LLM Agents},
+  title  = {Waking a Harness-Invoked Agent: A Blocking Receive in a Child Process and the Token Cost of Polling Instead},
   year   = {2026},
   doi    = {10.5281/zenodo.21206970},
   url    = {https://doi.org/10.5281/zenodo.21206970}
